@@ -1,12 +1,28 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/cursor"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// updateKey drives the public Update(...) dispatch with the given KeyMsg and
+// returns the resulting FirstTimeSetup. Use for US-006 tests, where the AC
+// requires tests to drive the model via Update rather than calling the
+// step-level handlers directly.
+func updateKey(t *testing.T, f FirstTimeSetup, msg tea.KeyMsg) FirstTimeSetup {
+	t.Helper()
+	model, _ := f.Update(msg)
+	got, ok := model.(FirstTimeSetup)
+	if !ok {
+		t.Fatalf("expected FirstTimeSetup model, got %T", model)
+	}
+	return got
+}
 
 // newPRDNameSetup returns a FirstTimeSetup positioned on the PRD-name step
 // with the textinput pre-populated to value with the cursor at end.
@@ -561,5 +577,183 @@ func TestPRDName_TypingAtMaxLengthIsNoOp(t *testing.T) {
 	}
 	if f.prdNameError != "" {
 		t.Fatalf("typing at max length must be silent (no error), got %q", f.prdNameError)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// US-006: end-to-end regression suite driven through Update(...)
+// -----------------------------------------------------------------------------
+
+// TestUS006_LeftTwiceInsert: "foo" → Left, Left → type 'X' yields "fXoo".
+func TestUS006_LeftTwiceInsert(t *testing.T) {
+	f := newPRDNameSetup(t, "foo") // pos=3
+	f = updateKey(t, f, tea.KeyMsg{Type: tea.KeyLeft})
+	f = updateKey(t, f, tea.KeyMsg{Type: tea.KeyLeft})
+	f = updateKey(t, f, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
+	if got, want := f.ti.Value(), "fXoo"; got != want {
+		t.Fatalf("left×2 + 'X': got %q, want %q", got, want)
+	}
+}
+
+// TestUS006_HomeInsert: "foo" → Home → type 'X' yields "Xfoo".
+func TestUS006_HomeInsert(t *testing.T) {
+	f := newPRDNameSetup(t, "foo")
+	f = updateKey(t, f, tea.KeyMsg{Type: tea.KeyHome})
+	f = updateKey(t, f, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
+	if got, want := f.ti.Value(), "Xfoo"; got != want {
+		t.Fatalf("home + 'X': got %q, want %q", got, want)
+	}
+}
+
+// TestUS006_CtrlLeftStopsAtHyphen: Ctrl+Left on "foo-bar" lands just after the
+// hyphen so 'X' yields "foo-Xbar". Exercises the parent-level intercept that
+// treats `-` and `_` as word separators.
+func TestUS006_CtrlLeftStopsAtHyphen(t *testing.T) {
+	f := newPRDNameSetup(t, "foo-bar") // pos=7
+	f = updateKey(t, f, tea.KeyMsg{Type: tea.KeyCtrlLeft})
+	if got, want := f.ti.Position(), 4; got != want {
+		t.Fatalf("ctrl+left on 'foo-bar' cursor: got pos %d, want %d", got, want)
+	}
+	f = updateKey(t, f, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
+	if got, want := f.ti.Value(), "foo-Xbar"; got != want {
+		t.Fatalf("ctrl+left + 'X' on 'foo-bar': got %q, want %q", got, want)
+	}
+}
+
+// TestUS006_InvalidAsciiSilentlyRejected: '!' is dropped; value and error
+// state are unchanged.
+func TestUS006_InvalidAsciiSilentlyRejected(t *testing.T) {
+	f := newPRDNameSetup(t, "main")
+	f = updateKey(t, f, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'!'}})
+	if got, want := f.ti.Value(), "main"; got != want {
+		t.Fatalf("invalid ascii: got %q, want %q", got, want)
+	}
+	if f.prdNameError != "" {
+		t.Fatalf("invalid ascii must not set an error, got %q", f.prdNameError)
+	}
+}
+
+// TestUS006_InvalidMultiByteRunesSilentlyRejected: é, 中, 🦄 are all rejected.
+// Locks in the by-design ASCII-only behavior from US-003 AC1.
+func TestUS006_InvalidMultiByteRunesSilentlyRejected(t *testing.T) {
+	for _, r := range []rune{'é', '中', '🦄'} {
+		f := newPRDNameSetup(t, "main")
+		f = updateKey(t, f, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		if got, want := f.ti.Value(), "main"; got != want {
+			t.Fatalf("multi-byte rune %q: got %q, want %q", r, got, want)
+		}
+	}
+}
+
+// TestUS006_PasteMyFeatureV2: pasting "my feature/v2!" into an empty field
+// yields "myfeaturev2".
+func TestUS006_PasteMyFeatureV2(t *testing.T) {
+	f := newPRDNameSetup(t, "")
+	f = updateKey(t, f, pasteMsg("my feature/v2!"))
+	if got, want := f.ti.Value(), "myfeaturev2"; got != want {
+		t.Fatalf("paste 'my feature/v2!': got %q, want %q", got, want)
+	}
+}
+
+// TestUS006_PasteTripleMaxLengthTruncates: a paste of maxPRDNameLength*3
+// valid characters is truncated to exactly maxPRDNameLength. Asserts against
+// the constant, not a literal, so the test tracks the limit if it's tuned.
+func TestUS006_PasteTripleMaxLengthTruncates(t *testing.T) {
+	f := newPRDNameSetup(t, "")
+	f = updateKey(t, f, pasteMsg(strings.Repeat("a", maxPRDNameLength*3)))
+	if got := len(f.ti.Value()); got != maxPRDNameLength {
+		t.Fatalf("paste length: got %d, want %d", got, maxPRDNameLength)
+	}
+}
+
+// TestUS006_TypingPastMaxLengthIsSilentNoOp: typing at max length keeps the
+// value at max and shows no error.
+func TestUS006_TypingPastMaxLengthIsSilentNoOp(t *testing.T) {
+	full := strings.Repeat("a", maxPRDNameLength)
+	f := newPRDNameSetup(t, full)
+	f = updateKey(t, f, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	if got := len(f.ti.Value()); got != maxPRDNameLength {
+		t.Fatalf("value length after typing past max: got %d, want %d", got, maxPRDNameLength)
+	}
+	if f.prdNameError != "" {
+		t.Fatalf("typing past max must not show an error, got %q", f.prdNameError)
+	}
+}
+
+// TestUS006_EnterOnEmptySetsErrorAndStays: Enter on empty value sets the exact
+// error "Name cannot be empty" and does not advance past StepPRDName.
+func TestUS006_EnterOnEmptySetsErrorAndStays(t *testing.T) {
+	f := newPRDNameSetup(t, "")
+	f = updateKey(t, f, tea.KeyMsg{Type: tea.KeyEnter})
+	if f.prdNameError != "Name cannot be empty" {
+		t.Fatalf("prdNameError: got %q, want %q", f.prdNameError, "Name cannot be empty")
+	}
+	if f.step != StepPRDName {
+		t.Fatalf("empty submit should not advance past StepPRDName: got step=%d", f.step)
+	}
+}
+
+// TestUS006_GitignoreToPRDNameBlinkCmd: with showGitignore=true, driving
+// confirmGitignore() returns a non-nil cmd whose invocation produces the
+// message that textinput.Blink produces in this bubbles version. Locks in the
+// US-001 acceptance for blink wiring on the gitignore→PRDName transition.
+func TestUS006_GitignoreToPRDNameBlinkCmd(t *testing.T) {
+	setup := NewFirstTimeSetup(t.TempDir(), true)
+	setup.gitignoreSelected = 1 // "No" — avoid touching the temp dir's .gitignore
+	model, cmd := setup.confirmGitignore()
+	got, ok := model.(FirstTimeSetup)
+	if !ok {
+		t.Fatalf("expected FirstTimeSetup model, got %T", model)
+	}
+	if got.step != StepPRDName {
+		t.Fatalf("confirmGitignore should transition to StepPRDName, got step=%d", got.step)
+	}
+	if cmd == nil {
+		t.Fatal("confirmGitignore should return a non-nil tea.Cmd")
+	}
+	msg := cmd()
+	if msg == nil {
+		t.Fatal("invoked cmd should produce a non-nil tea.Msg")
+	}
+	wantType := reflect.TypeOf(textinput.Blink())
+	if gotType := reflect.TypeOf(msg); gotType != wantType {
+		t.Fatalf("cmd should produce %v, got %v", wantType, gotType)
+	}
+}
+
+// TestUS006_InitBatchesAltScreenAndBlink: with showGitignore=false, Init()
+// returns a batch that, when invoked, yields both tea.EnterAltScreen's
+// message and textinput.Blink's message. Locks in US-001 AC for Init batching
+// in the no-gitignore flow.
+func TestUS006_InitBatchesAltScreenAndBlink(t *testing.T) {
+	setup := NewFirstTimeSetup(t.TempDir(), false)
+	cmd := setup.Init()
+	if cmd == nil {
+		t.Fatal("Init() should return a non-nil cmd when gitignore is skipped")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("Init() cmd should produce a tea.BatchMsg, got %T", msg)
+	}
+	wantAltScreen := reflect.TypeOf(tea.EnterAltScreen())
+	wantBlink := reflect.TypeOf(textinput.Blink())
+	var sawAltScreen, sawBlink bool
+	for _, c := range batch {
+		if c == nil {
+			continue
+		}
+		switch reflect.TypeOf(c()) {
+		case wantAltScreen:
+			sawAltScreen = true
+		case wantBlink:
+			sawBlink = true
+		}
+	}
+	if !sawAltScreen {
+		t.Error("batch should include the alt-screen message")
+	}
+	if !sawBlink {
+		t.Error("batch should include the blink message")
 	}
 }

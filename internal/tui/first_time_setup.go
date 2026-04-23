@@ -223,6 +223,18 @@ func (f FirstTimeSetup) handlePRDNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		f.result.PRDName = name
 		f.step = StepPostCompletion
 		return f, nil
+
+	// Override bubbles' whitespace-only word jump so `-` and `_` act as word
+	// separators — useful for PRD names like `foo-bar` where bubbles' default
+	// would treat the whole identifier as one word and collapse Ctrl+Left/Right
+	// to Home/End.
+	case "ctrl+left", "alt+left", "alt+b":
+		f.ti.SetCursor(prdNameWordBackward([]rune(f.ti.Value()), f.ti.Position()))
+		return f, nil
+
+	case "ctrl+right", "alt+right", "alt+f":
+		f.ti.SetCursor(prdNameWordForward([]rune(f.ti.Value()), f.ti.Position()))
+		return f, nil
 	}
 
 	// Filter rune input against the allowed character set before forwarding to
@@ -242,6 +254,44 @@ func (f FirstTimeSetup) handlePRDNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		f.prdNameError = ""
 	}
 	return f, cmd
+}
+
+// prdNameWordBackward returns the caret position after a word-jump-left from
+// pos, treating `-` and `_` as word separators. Mirrors bubbles'
+// wordBackward structure (skip separators, then skip non-separators) so
+// behavior is predictable next to the built-in key bindings.
+func prdNameWordBackward(value []rune, pos int) int {
+	if pos <= 0 || len(value) == 0 {
+		return 0
+	}
+	i := pos - 1
+	for i >= 0 && isPRDNameWordSeparator(value[i]) {
+		i--
+	}
+	for i >= 0 && !isPRDNameWordSeparator(value[i]) {
+		i--
+	}
+	return i + 1
+}
+
+// prdNameWordForward is the forward counterpart of prdNameWordBackward.
+func prdNameWordForward(value []rune, pos int) int {
+	n := len(value)
+	if pos >= n {
+		return n
+	}
+	i := pos
+	for i < n && isPRDNameWordSeparator(value[i]) {
+		i++
+	}
+	for i < n && !isPRDNameWordSeparator(value[i]) {
+		i++
+	}
+	return i
+}
+
+func isPRDNameWordSeparator(r rune) bool {
+	return r == '-' || r == '_'
 }
 
 // filterValidPRDRunes drops any rune outside the allowed PRD-name character
