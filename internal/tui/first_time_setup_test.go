@@ -531,3 +531,35 @@ func TestPRDName_PasteWithoutBracketedFlagAlsoFiltered(t *testing.T) {
 		t.Fatalf("non-bracketed multi-rune paste: got %q, want %q", got, want)
 	}
 }
+
+// TestPRDName_CharLimitMatchesConstant (US-005 AC2/AC5): the textinput's
+// CharLimit is wired from maxPRDNameLength and does not drift to a hard-coded
+// value. Changing the constant must be the only change needed to adjust the
+// limit — this test fails loudly if a future refactor ever hard-codes a length.
+func TestPRDName_CharLimitMatchesConstant(t *testing.T) {
+	setup := NewFirstTimeSetup(t.TempDir(), false)
+	if got, want := setup.ti.CharLimit, maxPRDNameLength; got != want {
+		t.Fatalf("ti.CharLimit: got %d, want %d (should track maxPRDNameLength)", got, want)
+	}
+}
+
+// TestPRDName_TypingAtMaxLengthIsNoOp (US-005 AC4): once the field is at the
+// maximum length, typing a further allowed character is silently dropped —
+// value unchanged, cursor unchanged, no error shown.
+func TestPRDName_TypingAtMaxLengthIsNoOp(t *testing.T) {
+	full := strings.Repeat("a", maxPRDNameLength)
+	f := newPRDNameSetup(t, full)
+	if got := len(f.ti.Value()); got != maxPRDNameLength {
+		t.Fatalf("precondition: value should be at max length, got %d", got)
+	}
+	f = sendKey(t, f, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
+	if got, want := f.ti.Value(), full; got != want {
+		t.Fatalf("typing at max length should not change value: got %q, want %q", got, want)
+	}
+	if got, want := f.ti.Position(), maxPRDNameLength; got != want {
+		t.Fatalf("cursor should not advance past max length: got pos %d, want %d", got, want)
+	}
+	if f.prdNameError != "" {
+		t.Fatalf("typing at max length must be silent (no error), got %q", f.prdNameError)
+	}
+}
