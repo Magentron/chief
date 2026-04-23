@@ -413,3 +413,121 @@ func maxLineWidth(s string) int {
 	}
 	return max
 }
+
+// pasteMsg constructs the KeyMsg bubbletea emits for a bracketed paste: a
+// single KeyRunes event with Paste=true carrying the full pasted rune slice.
+// See bubbletea v1.3.10 key_sequences.go:109 (detectBracketedPaste).
+func pasteMsg(s string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s), Paste: true}
+}
+
+// TestPRDName_PasteAllValidInsertsAtCaret (US-004 AC1): a string composed
+// entirely of allowed characters is inserted at the caret in one step.
+func TestPRDName_PasteAllValidInsertsAtCaret(t *testing.T) {
+	f := newPRDNameSetup(t, "")
+	f = sendKey(t, f, pasteMsg("my-feature_v2"))
+	if got, want := f.ti.Value(), "my-feature_v2"; got != want {
+		t.Fatalf("paste all-valid: got %q, want %q", got, want)
+	}
+	if got, want := f.ti.Position(), len("my-feature_v2"); got != want {
+		t.Fatalf("cursor should advance to end of pasted text: got pos %d, want %d", got, want)
+	}
+}
+
+// TestPRDName_PasteFiltersInvalidChars (US-004 AC2): invalid characters are
+// silently dropped and no error is shown.
+func TestPRDName_PasteFiltersInvalidChars(t *testing.T) {
+	f := newPRDNameSetup(t, "")
+	f = sendKey(t, f, pasteMsg("my feature/v2!"))
+	if got, want := f.ti.Value(), "myfeaturev2"; got != want {
+		t.Fatalf("paste with invalid chars: got %q, want %q", got, want)
+	}
+	if f.prdNameError != "" {
+		t.Fatalf("paste should not set an error, got %q", f.prdNameError)
+	}
+}
+
+// TestPRDName_PasteTruncatesToMaxLength (US-004 AC3): the field never exceeds
+// maxPRDNameLength; existing characters before the caret are preserved.
+func TestPRDName_PasteTruncatesToMaxLength(t *testing.T) {
+	f := newPRDNameSetup(t, "ab") // existing prefix before caret
+	// Paste more valid characters than would fit. Filter drops no runes, so the
+	// textinput has to enforce the CharLimit truncation itself.
+	longPaste := strings.Repeat("x", maxPRDNameLength*2)
+	f = sendKey(t, f, pasteMsg(longPaste))
+	if got := len(f.ti.Value()); got != maxPRDNameLength {
+		t.Fatalf("value length: got %d, want %d", got, maxPRDNameLength)
+	}
+	if got := f.ti.Value(); !strings.HasPrefix(got, "ab") {
+		t.Fatalf("existing prefix before caret must be preserved: got %q", got)
+	}
+}
+
+// TestPRDName_PasteAtMiddleCaretSplices (US-004 AC4): pasting with the caret
+// mid-buffer splices the filtered text into the middle of the value.
+func TestPRDName_PasteAtMiddleCaretSplices(t *testing.T) {
+	f := newPRDNameSetup(t, "main") // pos=4
+	f.ti.SetCursor(2)               // "ma|in"
+	f = sendKey(t, f, pasteMsg("X-Y"))
+	if got, want := f.ti.Value(), "maX-Yin"; got != want {
+		t.Fatalf("paste mid-buffer: got %q, want %q", got, want)
+	}
+	if got, want := f.ti.Position(), 5; got != want {
+		t.Fatalf("cursor should sit right after the pasted text: got pos %d, want %d", got, want)
+	}
+}
+
+// TestPRDName_PasteAtMiddleCaretSplicesWithFiltering combines AC2 and AC4: an
+// in-middle paste with invalid chars splices only the valid subset.
+func TestPRDName_PasteAtMiddleCaretSplicesWithFiltering(t *testing.T) {
+	f := newPRDNameSetup(t, "main")
+	f.ti.SetCursor(2)
+	f = sendKey(t, f, pasteMsg("X Y/Z"))
+	if got, want := f.ti.Value(), "maXYZin"; got != want {
+		t.Fatalf("filtered paste mid-buffer: got %q, want %q", got, want)
+	}
+}
+
+// TestPRDName_PasteClearsError (US-004 AC5): a paste that changes the value
+// clears prdNameError.
+func TestPRDName_PasteClearsError(t *testing.T) {
+	f := newPRDNameSetup(t, "")
+	model, _ := f.handlePRDNameKeys(tea.KeyMsg{Type: tea.KeyEnter})
+	f = model.(FirstTimeSetup)
+	if f.prdNameError == "" {
+		t.Fatal("precondition: empty submit should set an error")
+	}
+	f = sendKey(t, f, pasteMsg("feature"))
+	if f.prdNameError != "" {
+		t.Fatalf("paste should clear prdNameError, got %q", f.prdNameError)
+	}
+	if got, want := f.ti.Value(), "feature"; got != want {
+		t.Fatalf("paste value: got %q, want %q", got, want)
+	}
+}
+
+// TestPRDName_PasteAllInvalidIsNoOp verifies that a paste containing only
+// invalid characters leaves the value unchanged (and therefore does not clear
+// a standing error — sister assertion to AC5's "changes the value" wording).
+func TestPRDName_PasteAllInvalidIsNoOp(t *testing.T) {
+	f := newPRDNameSetup(t, "main")
+	f.prdNameError = "sticky"
+	f = sendKey(t, f, pasteMsg("! @ # $"))
+	if got, want := f.ti.Value(), "main"; got != want {
+		t.Fatalf("all-invalid paste should not change value: got %q, want %q", got, want)
+	}
+	if f.prdNameError != "sticky" {
+		t.Fatalf("error should persist when paste changes nothing: got %q", f.prdNameError)
+	}
+}
+
+// TestPRDName_PasteWithoutBracketedFlagAlsoFiltered verifies the same filter
+// path handles a multi-rune KeyRunes event that lacks Paste=true (the
+// fallback path when bracketed paste is disabled in the terminal).
+func TestPRDName_PasteWithoutBracketedFlagAlsoFiltered(t *testing.T) {
+	f := newPRDNameSetup(t, "")
+	f = sendKey(t, f, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ab/cd!")})
+	if got, want := f.ti.Value(), "abcd"; got != want {
+		t.Fatalf("non-bracketed multi-rune paste: got %q, want %q", got, want)
+	}
+}
