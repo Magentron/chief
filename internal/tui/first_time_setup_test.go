@@ -210,6 +210,14 @@ func TestFilterValidPRDRunes(t *testing.T) {
 		{[]rune("01234"), []rune("01234")},
 		{[]rune("a b!c"), []rune("abc")},
 		{[]rune(""), []rune{}},
+		// Multi-byte Unicode runes are dropped — closes the corner case where
+		// the old byte-length check (`len(msg.String()) == 1`) would
+		// accidentally drop them on the wrong grounds.
+		{[]rune("café"), []rune("caf")},
+		{[]rune("naïve"), []rune("nave")},
+		{[]rune("中文"), []rune{}},
+		{[]rune("a日本b"), []rune("ab")},
+		{[]rune("emoji-😀-here"), []rune("emoji--here")},
 	}
 	for _, tc := range tests {
 		got := filterValidPRDRunes(tc.in)
@@ -217,4 +225,191 @@ func TestFilterValidPRDRunes(t *testing.T) {
 			t.Errorf("filterValidPRDRunes(%q) = %q, want %q", string(tc.in), string(got), string(tc.want))
 		}
 	}
+}
+
+// TestPRDName_SpaceKeyIsFiltered confirms a real spacebar press (which arrives
+// with Type=KeySpace, not KeyRunes) is dropped before reaching the textinput.
+// Without explicit handling for KeySpace, a literal space would enter the
+// buffer and violate AC1.
+func TestPRDName_SpaceKeyIsFiltered(t *testing.T) {
+	f := newPRDNameSetup(t, "main")
+	f.ti.SetCursor(2)
+	f = sendKey(t, f, tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	if got, want := f.ti.Value(), "main"; got != want {
+		t.Fatalf("space key should be filtered: got %q, want %q", got, want)
+	}
+	if got, want := f.ti.Position(), 2; got != want {
+		t.Fatalf("filtered key should not advance cursor: got pos %d, want %d", got, want)
+	}
+}
+
+// TestPRDName_MultiByteRuneIsFiltered verifies multi-byte Unicode runes
+// arriving as a single KeyRunes event are silently dropped (AC1).
+func TestPRDName_MultiByteRuneIsFiltered(t *testing.T) {
+	f := newPRDNameSetup(t, "main")
+	f.ti.SetCursor(2)
+	f = sendKey(t, f, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'é'}})
+	if got, want := f.ti.Value(), "main"; got != want {
+		t.Fatalf("multi-byte rune should be filtered: got %q, want %q", got, want)
+	}
+}
+
+// TestPRDName_EnterRejectsEmptyNameMessage pins the exact error string from AC2.
+func TestPRDName_EnterRejectsEmptyNameMessage(t *testing.T) {
+	f := newPRDNameSetup(t, "")
+	model, _ := f.handlePRDNameKeys(tea.KeyMsg{Type: tea.KeyEnter})
+	got := model.(FirstTimeSetup)
+	if got.prdNameError != "Name cannot be empty" {
+		t.Fatalf("expected exact error %q, got %q", "Name cannot be empty", got.prdNameError)
+	}
+}
+
+// TestPRDName_ErrorClearedOnValueChange verifies AC3: prdNameError is cleared
+// whenever the input value changes (here, by typing an allowed rune).
+func TestPRDName_ErrorClearedOnValueChange(t *testing.T) {
+	f := newPRDNameSetup(t, "")
+	model, _ := f.handlePRDNameKeys(tea.KeyMsg{Type: tea.KeyEnter})
+	f = model.(FirstTimeSetup)
+	if f.prdNameError == "" {
+		t.Fatal("precondition: empty submit should set an error")
+	}
+	f = sendKey(t, f, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if f.prdNameError != "" {
+		t.Fatalf("error should clear when value changes, got %q", f.prdNameError)
+	}
+}
+
+// TestPRDName_ErrorPreservedWhenValueUnchanged verifies the error survives a
+// keypress that produces no value change (e.g. a fully-filtered space).
+func TestPRDName_ErrorPreservedWhenValueUnchanged(t *testing.T) {
+	f := newPRDNameSetup(t, "")
+	model, _ := f.handlePRDNameKeys(tea.KeyMsg{Type: tea.KeyEnter})
+	f = model.(FirstTimeSetup)
+	wantErr := f.prdNameError
+	if wantErr == "" {
+		t.Fatal("precondition: empty submit should set an error")
+	}
+	f = sendKey(t, f, tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	if f.prdNameError != wantErr {
+		t.Fatalf("error should persist when filtered key changes nothing: got %q, want %q", f.prdNameError, wantErr)
+	}
+}
+
+// TestPRDName_CtrlCCancels verifies AC4: ctrl+c quits and marks the result
+// cancelled regardless of the showGitignore branch.
+func TestPRDName_CtrlCCancels(t *testing.T) {
+	for _, showGitignore := range []bool{false, true} {
+		t.Run("", func(t *testing.T) {
+			setup := NewFirstTimeSetup(t.TempDir(), showGitignore)
+			setup.step = StepPRDName
+			model, cmd := setup.handlePRDNameKeys(tea.KeyMsg{Type: tea.KeyCtrlC})
+			got := model.(FirstTimeSetup)
+			if !got.result.Cancelled {
+				t.Fatal("ctrl+c should set Cancelled=true")
+			}
+			if cmd == nil {
+				t.Fatal("ctrl+c should return a non-nil cmd (tea.Quit)")
+			}
+		})
+	}
+}
+
+// TestPRDName_EscWithoutGitignoreCancels verifies AC4: when the gitignore step
+// was skipped, esc cancels the flow.
+func TestPRDName_EscWithoutGitignoreCancels(t *testing.T) {
+	setup := NewFirstTimeSetup(t.TempDir(), false)
+	model, cmd := setup.handlePRDNameKeys(tea.KeyMsg{Type: tea.KeyEsc})
+	got := model.(FirstTimeSetup)
+	if !got.result.Cancelled {
+		t.Fatal("esc with no gitignore step should cancel")
+	}
+	if cmd == nil {
+		t.Fatal("esc with no gitignore step should return tea.Quit")
+	}
+}
+
+// TestPRDName_EscWithGitignoreReturnsToPreviousStep verifies AC4: when the
+// gitignore step preceded this one, esc walks back to it (no cancellation),
+// and clears any pending error.
+func TestPRDName_EscWithGitignoreReturnsToPreviousStep(t *testing.T) {
+	setup := NewFirstTimeSetup(t.TempDir(), true)
+	setup.step = StepPRDName
+	setup.prdNameError = "something"
+	model, cmd := setup.handlePRDNameKeys(tea.KeyMsg{Type: tea.KeyEsc})
+	got := model.(FirstTimeSetup)
+	if got.result.Cancelled {
+		t.Fatal("esc with gitignore step should not cancel")
+	}
+	if got.step != StepGitignore {
+		t.Fatalf("esc should return to gitignore step, got step=%d", got.step)
+	}
+	if got.prdNameError != "" {
+		t.Fatalf("esc should clear prdNameError, got %q", got.prdNameError)
+	}
+	if cmd != nil {
+		t.Fatal("esc back to gitignore should not return a quit cmd")
+	}
+}
+
+// TestPRDName_EnterAdvancesAndClearsError verifies AC2 and AC3 together: a
+// successful submit clears any prior error and advances to StepPostCompletion.
+func TestPRDName_EnterAdvancesAndClearsError(t *testing.T) {
+	f := newPRDNameSetup(t, "main")
+	f.prdNameError = "stale error"
+	model, _ := f.handlePRDNameKeys(tea.KeyMsg{Type: tea.KeyEnter})
+	got := model.(FirstTimeSetup)
+	if got.step != StepPostCompletion {
+		t.Fatalf("expected step=%d (StepPostCompletion), got %d", StepPostCompletion, got.step)
+	}
+	if got.result.PRDName != "main" {
+		t.Fatalf("expected PRDName=main, got %q", got.result.PRDName)
+	}
+}
+
+// TestPRDName_TextinputWidthMatchesModalContent verifies AC6: the textinput's
+// Width tracks the lipgloss content width via prdNameModalWidth - 8, with no
+// extra padding subtraction. Resizing should keep them in sync.
+func TestPRDName_TextinputWidthMatchesModalContent(t *testing.T) {
+	setup := NewFirstTimeSetup(t.TempDir(), false)
+	if got, want := setup.ti.Width, prdNameModalWidth(0)-8; got != want {
+		t.Fatalf("initial ti.Width: got %d, want %d", got, want)
+	}
+	model, _ := setup.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	got := model.(FirstTimeSetup)
+	if want := prdNameModalWidth(120) - 8; got.ti.Width != want {
+		t.Fatalf("ti.Width after resize: got %d, want %d", got.ti.Width, want)
+	}
+}
+
+// TestPRDName_EmptyAndPopulatedFieldHaveSameRenderedWidth verifies AC7: the
+// bordered input box keeps the same visual width whether the field is empty
+// or contains text.
+func TestPRDName_EmptyAndPopulatedFieldHaveSameRenderedWidth(t *testing.T) {
+	emptySetup := NewFirstTimeSetup(t.TempDir(), false)
+	emptySetup.width, emptySetup.height = 100, 40
+	emptySetup.ti.Width = prdNameModalWidth(100) - 8
+	emptySetup.ti.SetValue("")
+	emptyView := emptySetup.View()
+
+	populatedSetup := NewFirstTimeSetup(t.TempDir(), false)
+	populatedSetup.width, populatedSetup.height = 100, 40
+	populatedSetup.ti.Width = prdNameModalWidth(100) - 8
+	populatedSetup.ti.SetValue("main")
+	populatedView := populatedSetup.View()
+
+	emptyMax := maxLineWidth(emptyView)
+	populatedMax := maxLineWidth(populatedView)
+	if emptyMax != populatedMax {
+		t.Fatalf("rendered max width should match: empty=%d populated=%d", emptyMax, populatedMax)
+	}
+}
+
+func maxLineWidth(s string) int {
+	max := 0
+	for _, line := range strings.Split(s, "\n") {
+		if n := len([]rune(line)); n > max {
+			max = n
+		}
+	}
+	return max
 }
