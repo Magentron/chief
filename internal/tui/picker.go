@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/Magentron/chief/internal/git"
 	"github.com/Magentron/chief/internal/loop"
 	"github.com/Magentron/chief/internal/prd"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // PRDEntry represents a PRD in the picker list.

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/Magentron/chief/internal/prd"
+	"github.com/charmbracelet/lipgloss"
 )
 
 const (

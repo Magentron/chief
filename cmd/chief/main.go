@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/Magentron/chief/internal/agent"
 	"github.com/Magentron/chief/internal/cmd"
 	"github.com/Magentron/chief/internal/config"
@@ -15,6 +14,7 @@ import (
 	"github.com/Magentron/chief/internal/loop"
 	"github.com/Magentron/chief/internal/prd"
 	"github.com/Magentron/chief/internal/tui"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Version is set at build time via ldflags

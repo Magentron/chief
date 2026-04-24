@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/Magentron/chief/internal/config"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // SettingsItemType represents the type of a settings item.
