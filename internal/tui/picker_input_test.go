@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/minicodemonkey/chief/internal/loop"
 )
 
 // newPickerInputMode returns a *PRDPicker in input mode with the textinput
@@ -263,5 +265,91 @@ func TestPickerInput_EmptyAndPopulatedFieldHaveSameRenderedWidth(t *testing.T) {
 	populatedMax := maxLineWidth(populatedView)
 	if emptyMax != populatedMax {
 		t.Fatalf("rendered max width should match: empty=%d populated=%d", emptyMax, populatedMax)
+	}
+}
+
+// TestPickerInput_CtrlCQuitsFromInputMode locks in the ctrl+c dispatch at
+// app.go:1831: while the picker is in input mode, ctrl+c must quit the app
+// (matching FirstTimeSetup.handlePRDNameKeys), not slip through to
+// UpdateInput where textinput.Update would silently swallow it.
+func TestPickerInput_CtrlCQuitsFromInputMode(t *testing.T) {
+	picker := NewPRDPicker(t.TempDir(), "", nil)
+	picker.StartInputMode()
+	picker.ti.SetValue("main")
+	app := App{picker: picker, viewMode: ViewPicker}
+
+	_, cmd := app.handlePickerKeys(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("ctrl+c in picker input mode should return a non-nil cmd (tea.Quit)")
+	}
+	if got, want := reflect.TypeOf(cmd()), reflect.TypeOf(tea.Quit()); got != want {
+		t.Fatalf("ctrl+c cmd type: got %v, want %v", got, want)
+	}
+	if got, want := picker.ti.Value(), "main"; got != want {
+		t.Fatalf("ctrl+c must not mutate the textinput value: got %q, want %q", got, want)
+	}
+}
+
+// managerWithRunningPRD returns a *loop.Manager with one instance whose State
+// is forced to LoopStateRunning. Used to exercise the tryQuit branch that
+// routes through the quit-confirmation dialog.
+func managerWithRunningPRD(t *testing.T, name string) *loop.Manager {
+	t.Helper()
+	m := loop.NewManager(10, nil)
+	if err := m.Register(name, "/tmp/"+name); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	inst := m.GetInstance(name)
+	if inst == nil {
+		t.Fatal("registered instance not retrievable")
+	}
+	// Single-goroutine test — no concurrent reader, so writing State
+	// directly is safe without locking instance.mu.
+	inst.State = loop.LoopStateRunning
+	return m
+}
+
+// TestPickerInput_CtrlCOpensQuitConfirmWhenLoopRunning covers the other tryQuit
+// branch: when a loop is running, Ctrl+C in picker input mode must open the
+// quit-confirmation dialog (not quit immediately). The in-progress input
+// value must survive the detour — canceling the confirmation with Esc
+// returns the user to the picker with the textinput still populated.
+func TestPickerInput_CtrlCOpensQuitConfirmWhenLoopRunning(t *testing.T) {
+	picker := NewPRDPicker(t.TempDir(), "", nil)
+	picker.StartInputMode()
+	picker.ti.SetValue("main")
+	app := App{
+		picker:      picker,
+		manager:     managerWithRunningPRD(t, "current"),
+		quitConfirm: NewQuitConfirmation(),
+		viewMode:    ViewPicker,
+	}
+
+	model, cmd := app.handlePickerKeys(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd != nil {
+		t.Fatal("ctrl+c must not return tea.Quit while a loop is running")
+	}
+	after := model.(App)
+	if after.viewMode != ViewQuitConfirm {
+		t.Fatalf("viewMode after ctrl+c: got %v, want ViewQuitConfirm", after.viewMode)
+	}
+	if !picker.IsInputMode() {
+		t.Fatal("picker must remain in input mode across the quit-confirm detour")
+	}
+	if got, want := picker.ti.Value(), "main"; got != want {
+		t.Fatalf("picker value after ctrl+c: got %q, want %q", got, want)
+	}
+
+	// Cancel the quit-confirmation with Esc and verify the picker state survives.
+	model, _ = after.handleQuitConfirmKeys(tea.KeyMsg{Type: tea.KeyEsc})
+	back := model.(App)
+	if back.viewMode != ViewPicker {
+		t.Fatalf("viewMode after cancel: got %v, want ViewPicker", back.viewMode)
+	}
+	if !picker.IsInputMode() {
+		t.Fatal("picker must still be in input mode after cancel")
+	}
+	if got, want := picker.ti.Value(), "main"; got != want {
+		t.Fatalf("picker value after cancel: got %q, want %q", got, want)
 	}
 }

@@ -1094,6 +1094,8 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle edit mode input
 	if a.branchWarning.IsEditMode() {
 		switch msg.String() {
+		case "ctrl+c":
+			return a.tryQuit()
 		case "esc":
 			// Cancel edit mode
 			a.branchWarning.CancelEditMode()
@@ -1830,6 +1832,8 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle input mode (creating new PRD)
 	if a.picker.IsInputMode() {
 		switch msg.String() {
+		case "ctrl+c":
+			return a.tryQuit()
 		case "esc":
 			a.picker.CancelInputMode()
 			return a, nil

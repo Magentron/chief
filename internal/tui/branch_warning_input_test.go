@@ -320,3 +320,65 @@ func TestBranchInput_EmptyAndPopulatedFieldHaveSameRenderedWidth(t *testing.T) {
 		t.Fatalf("rendered max width should match: empty=%d populated=%d", emptyMax, populatedMax)
 	}
 }
+
+// TestBranchInput_CtrlCQuitsFromEditMode locks in the ctrl+c dispatch at
+// app.go:1095: while the branch-warning modal is in edit mode, ctrl+c must
+// quit the app (matching FirstTimeSetup.handlePRDNameKeys), not slip through
+// to UpdateInput where textinput.Update would silently swallow it.
+func TestBranchInput_CtrlCQuitsFromEditMode(t *testing.T) {
+	bw := newBranchEditMode(t, "chief/auth")
+	app := App{branchWarning: bw, viewMode: ViewBranchWarning}
+
+	_, cmd := app.handleBranchWarningKeys(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("ctrl+c in branch-warning edit mode should return a non-nil cmd (tea.Quit)")
+	}
+	if got, want := reflect.TypeOf(cmd()), reflect.TypeOf(tea.Quit()); got != want {
+		t.Fatalf("ctrl+c cmd type: got %v, want %v", got, want)
+	}
+	if got, want := bw.ti.Value(), "chief/auth"; got != want {
+		t.Fatalf("ctrl+c must not mutate the textinput value: got %q, want %q", got, want)
+	}
+}
+
+// TestBranchInput_CtrlCOpensQuitConfirmWhenLoopRunning mirrors the picker
+// counterpart: when a loop is running, Ctrl+C in branch-warning edit mode
+// must open the quit-confirmation dialog (not quit immediately). Canceling
+// with Esc must return the user to the branch-warning modal with edit mode
+// still active and the (possibly edited) branch name preserved.
+func TestBranchInput_CtrlCOpensQuitConfirmWhenLoopRunning(t *testing.T) {
+	bw := newBranchEditMode(t, "chief/my-edit")
+	app := App{
+		branchWarning: bw,
+		manager:       managerWithRunningPRD(t, "current"),
+		quitConfirm:   NewQuitConfirmation(),
+		viewMode:      ViewBranchWarning,
+	}
+
+	model, cmd := app.handleBranchWarningKeys(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd != nil {
+		t.Fatal("ctrl+c must not return tea.Quit while a loop is running")
+	}
+	after := model.(App)
+	if after.viewMode != ViewQuitConfirm {
+		t.Fatalf("viewMode after ctrl+c: got %v, want ViewQuitConfirm", after.viewMode)
+	}
+	if !bw.IsEditMode() {
+		t.Fatal("branch-warning must remain in edit mode across the quit-confirm detour")
+	}
+	if got, want := bw.ti.Value(), "chief/my-edit"; got != want {
+		t.Fatalf("branch value after ctrl+c: got %q, want %q", got, want)
+	}
+
+	model, _ = after.handleQuitConfirmKeys(tea.KeyMsg{Type: tea.KeyEsc})
+	back := model.(App)
+	if back.viewMode != ViewBranchWarning {
+		t.Fatalf("viewMode after cancel: got %v, want ViewBranchWarning", back.viewMode)
+	}
+	if !bw.IsEditMode() {
+		t.Fatal("branch-warning must still be in edit mode after cancel")
+	}
+	if got, want := bw.ti.Value(), "chief/my-edit"; got != want {
+		t.Fatalf("branch value after cancel: got %q, want %q", got, want)
+	}
+}

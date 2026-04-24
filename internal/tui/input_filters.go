@@ -1,5 +1,16 @@
 package tui
 
+import tea "github.com/charmbracelet/bubbletea"
+
+// isTextualKey reports whether a KeyMsg carries rune input that must run
+// through a charset filter. bubbles delivers a bare spacebar press as
+// KeySpace (not KeyRunes), so both types must be handled — otherwise spaces
+// would slip past the filter. Shared by FirstTimeSetup, PRDPicker, and
+// BranchWarning so the three widgets can't drift on this corner case.
+func isTextualKey(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace
+}
+
 // prdNameSeparators are the word-separator runes used by PRD-name editors
 // (both FirstTimeSetup's StepPRDName and PRDPicker's new-PRD-name input) for
 // Ctrl+Left/Right word jumps. Defined once so the two widgets can't drift.

@@ -324,8 +324,9 @@ func (p *PRDPicker) GetInputValue() string {
 // (and their Alt-variants) to treat `-` and `_` as word separators. Non-rune
 // keys (arrows, backspace, Home/End, etc.) pass through unchanged.
 //
-// Callers MUST have already matched input-mode control keys (esc, enter)
-// before forwarding here (see FR-9).
+// Callers MUST have already matched input-mode control keys (esc, enter,
+// ctrl+c) before forwarding here (see FR-9 in
+// .chief/prds/extend-cursor-keys-to-tui-dialogs/prd.md).
 func (p *PRDPicker) UpdateInput(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+left", "alt+left", "alt+b":
@@ -336,7 +337,7 @@ func (p *PRDPicker) UpdateInput(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
-	if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
+	if isTextualKey(msg) {
 		msg.Runes = filterPRDNameRunes(msg.Runes)
 	}
 
@@ -540,7 +541,7 @@ func (p *PRDPicker) Render() string {
 
 	var shortcuts string
 	if p.inputMode {
-		shortcuts = "Enter: create  │  Esc: cancel"
+		shortcuts = "Enter: create  │  Esc: cancel  │  Ctrl+C: quit"
 	} else {
 		// Build context-sensitive shortcuts based on selected entry's state
 		shortcuts = p.buildFooterShortcuts()

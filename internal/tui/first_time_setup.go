@@ -238,12 +238,10 @@ func (f FirstTimeSetup) handlePRDNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Filter rune input against the allowed character set before forwarding to
-	// the textinput. A bare spacebar press arrives as KeySpace (not KeyRunes),
-	// so handle both — otherwise spaces would slip past the filter into the
-	// buffer. Non-rune keys (arrows, backspace, Home/End, Ctrl+arrows,
+	// the textinput. Non-rune keys (arrows, backspace, Home/End, Ctrl+arrows,
 	// Alt+Backspace, etc.) pass through unchanged so the bubbles default key
-	// bindings keep working.
-	if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
+	// bindings keep working. See isTextualKey for the KeySpace rationale.
+	if isTextualKey(msg) {
 		msg.Runes = filterPRDNameRunes(msg.Runes)
 	}
 

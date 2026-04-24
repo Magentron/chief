@@ -217,6 +217,9 @@ func (b *BranchWarning) IsEditMode() bool {
 func (b *BranchWarning) StartEditMode() tea.Cmd {
 	b.editMode = true
 	b.ti.Focus()
+	// CursorEnd on re-entry is intentional (PRD US-008 AC): the value itself
+	// is preserved across e/esc/e toggles, but the caret jumps to the end of
+	// the (possibly edited) string rather than restoring its prior position.
 	b.ti.CursorEnd()
 	return textinput.Blink
 }
@@ -231,8 +234,9 @@ func (b *BranchWarning) CancelEditMode() {
 // branch-name charset filter to rune input and overriding Ctrl+Left/Right (and
 // their Alt-variants) to treat '-', '_', and '/' as word separators.
 //
-// Callers MUST have already matched edit-mode control keys (esc, enter) before
-// forwarding here (see FR-9).
+// Callers MUST have already matched edit-mode control keys (esc, enter,
+// ctrl+c) before forwarding here (see FR-9 in
+// .chief/prds/extend-cursor-keys-to-tui-dialogs/prd.md).
 func (b *BranchWarning) UpdateInput(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+left", "alt+left", "alt+b":
@@ -243,7 +247,7 @@ func (b *BranchWarning) UpdateInput(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
-	if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
+	if isTextualKey(msg) {
 		msg.Runes = filterBranchNameRunes(msg.Runes)
 	}
 
@@ -290,7 +294,7 @@ func (b *BranchWarning) Render() string {
 
 	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
 	if b.editMode {
-		content.WriteString(footerStyle.Render("Enter: confirm  Esc: cancel edit"))
+		content.WriteString(footerStyle.Render("Enter: confirm  Esc: cancel edit  Ctrl+C: quit"))
 	} else {
 		content.WriteString(footerStyle.Render("↑/↓: Navigate  Enter: Select  e: Edit branch  Esc: Cancel"))
 	}
