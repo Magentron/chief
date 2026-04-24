@@ -5,6 +5,10 @@ package tui
 // Ctrl+Left/Right word jumps. Defined once so the two widgets can't drift.
 var prdNameSeparators = []rune{'-', '_'}
 
+// branchNameSeparators are the word-separator runes used by the BranchWarning
+// branch-name editor for Ctrl+Left/Right word jumps.
+var branchNameSeparators = []rune{'-', '_', '/'}
+
 // filterPRDNameRunes drops any rune outside the allowed PRD-name character
 // set ([a-zA-Z0-9_-]). Returns a new slice so the caller can safely forward
 // the filtered KeyMsg to the textinput.
@@ -13,6 +17,20 @@ func filterPRDNameRunes(runes []rune) []rune {
 	for _, r := range runes {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
 			(r >= '0' && r <= '9') || r == '-' || r == '_' {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
+}
+
+// filterBranchNameRunes drops any rune outside the allowed branch-name
+// character set ([a-zA-Z0-9_/-]). Returns a new slice so the caller can safely
+// forward the filtered KeyMsg to the textinput.
+func filterBranchNameRunes(runes []rune) []rune {
+	filtered := make([]rune, 0, len(runes))
+	for _, r := range runes {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' {
 			filtered = append(filtered, r)
 		}
 	}
