@@ -60,6 +60,7 @@ func NewBranchWarning() *BranchWarning {
 	ti := textinput.New()
 	ti.Prompt = ""
 	ti.CharLimit = maxBranchNameLength
+	ti.Width = branchWarningInputWidth(0)
 
 	return &BranchWarning{
 		selectedIndex: 0,
@@ -67,10 +68,23 @@ func NewBranchWarning() *BranchWarning {
 	}
 }
 
+// branchWarningInputWidth returns the textinput width for the branch-name field
+// based on the current terminal width. Kept in one place so the textinput stays
+// in parity with the surrounding lipgloss box (see renderBranchName).
+func branchWarningInputWidth(terminalWidth int) int {
+	modalWidth := min(65, terminalWidth-10)
+	if modalWidth < 40 {
+		modalWidth = 40
+	}
+	// modalWidth - 6 (border + padding on both sides) - 8 ("Branch: " prefix)
+	return modalWidth - 14
+}
+
 // SetSize sets the dialog dimensions.
 func (b *BranchWarning) SetSize(width, height int) {
 	b.width = width
 	b.height = height
+	b.ti.Width = branchWarningInputWidth(width)
 }
 
 // SetContext sets the branch, PRD context, and worktree path for the warning.
