@@ -299,13 +299,11 @@ func managerWithRunningPRD(t *testing.T, name string) *loop.Manager {
 	if err := m.Register(name, "/tmp/"+name); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	inst := m.GetInstance(name)
-	if inst == nil {
-		t.Fatal("registered instance not retrievable")
+	// GetInstance returns a copy, so flipping State on the returned
+	// *LoopInstance wouldn't reach the real map entry.
+	if err := m.SetInstanceStateForTest(name, loop.LoopStateRunning); err != nil {
+		t.Fatalf("SetInstanceStateForTest: %v", err)
 	}
-	// Single-goroutine test — no concurrent reader, so writing State
-	// directly is safe without locking instance.mu.
-	inst.State = loop.LoopStateRunning
 	return m
 }
 

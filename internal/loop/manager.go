@@ -538,6 +538,26 @@ func (m *Manager) IsAnyRunning() bool {
 	return m.GetRunningCount() > 0
 }
 
+// SetInstanceStateForTest overrides the state of a registered instance.
+// Production state transitions go through Start / Stop / Pause; this method
+// exists so tests can simulate a running loop (or any other state) without
+// spinning up the real goroutine and provider machinery. The ForTest suffix
+// is load-bearing — GetInstance returns a copy, so tests can't mutate the
+// real entry directly, and a plain "SetInstanceState" name would invite
+// production callers to bypass the state machine.
+func (m *Manager) SetInstanceStateForTest(name string, state LoopState) error {
+	m.mu.RLock()
+	instance, exists := m.instances[name]
+	m.mu.RUnlock()
+	if !exists {
+		return fmt.Errorf("PRD %s not found", name)
+	}
+	instance.mu.Lock()
+	defer instance.mu.Unlock()
+	instance.State = state
+	return nil
+}
+
 // SetMaxIterations updates the default max iterations for new loops.
 func (m *Manager) SetMaxIterations(maxIter int) {
 	m.mu.Lock()

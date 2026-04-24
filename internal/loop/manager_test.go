@@ -185,6 +185,41 @@ func TestManagerIsAnyRunning(t *testing.T) {
 	}
 }
 
+func TestManagerSetInstanceStateForTest(t *testing.T) {
+	tmpDir := t.TempDir()
+	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
+
+	m := NewManager(10, testProvider)
+	if err := m.Register("test-prd", prdPath); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Happy path: flipping State to Running must be observable via the
+	// IsAnyRunning / GetRunningCount / GetRunningPRDs trio.
+	if err := m.SetInstanceStateForTest("test-prd", LoopStateRunning); err != nil {
+		t.Fatalf("SetInstanceStateForTest: %v", err)
+	}
+	if !m.IsAnyRunning() {
+		t.Fatal("IsAnyRunning should be true after flipping State to Running")
+	}
+	if got, want := m.GetRunningCount(), 1; got != want {
+		t.Fatalf("GetRunningCount: got %d, want %d", got, want)
+	}
+	running := m.GetRunningPRDs()
+	if len(running) != 1 || running[0] != "test-prd" {
+		t.Fatalf("GetRunningPRDs: got %v, want [test-prd]", running)
+	}
+
+	// Error path: unknown PRD name must return a non-nil error, and state
+	// of the registered instance must not change.
+	if err := m.SetInstanceStateForTest("nope", LoopStateStopped); err == nil {
+		t.Fatal("SetInstanceStateForTest on unknown name should return an error")
+	}
+	if !m.IsAnyRunning() {
+		t.Fatal("registered instance's state must not change on unknown-name call")
+	}
+}
+
 func TestManagerPauseNonRunning(t *testing.T) {
 	tmpDir := t.TempDir()
 	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
