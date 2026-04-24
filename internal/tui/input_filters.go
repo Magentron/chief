@@ -11,6 +11,17 @@ func isTextualKey(msg tea.KeyMsg) bool {
 	return msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace
 }
 
+// isPasteLike reports whether a KeyMsg should be treated as a paste for the
+// purposes of input normalization. A bracketed-paste event sets Paste=true
+// explicitly; terminals that do not advertise bracketed paste still deliver
+// the clipboard as a single multi-rune KeyRunes message, which we treat as
+// a paste too so behavior stays consistent across terminals. Single-rune
+// input (keystrokes) always goes through the drop filter instead — there is
+// no "run" of invalid chars to collapse in that case.
+func isPasteLike(msg tea.KeyMsg) bool {
+	return msg.Paste || len(msg.Runes) > 1
+}
+
 // prdNameSeparators are the word-separator runes used by PRD-name editors
 // (both FirstTimeSetup's StepPRDName and PRDPicker's new-PRD-name input) for
 // Ctrl+Left/Right word jumps. Defined once so the two widgets can't drift.
@@ -20,32 +31,85 @@ var prdNameSeparators = []rune{'-', '_'}
 // branch-name editor for Ctrl+Left/Right word jumps.
 var branchNameSeparators = []rune{'-', '_', '/'}
 
+// isAllowedPRDNameRune reports whether r is in the PRD-name charset
+// ([a-zA-Z0-9_-]).
+func isAllowedPRDNameRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') || r == '-' || r == '_'
+}
+
+// isAllowedBranchNameRune reports whether r is in the branch-name charset
+// ([a-zA-Z0-9_/-]).
+func isAllowedBranchNameRune(r rune) bool {
+	return isAllowedPRDNameRune(r) || r == '/'
+}
+
 // filterPRDNameRunes drops any rune outside the allowed PRD-name character
 // set ([a-zA-Z0-9_-]). Returns a new slice so the caller can safely forward
 // the filtered KeyMsg to the textinput.
 func filterPRDNameRunes(runes []rune) []rune {
-	filtered := make([]rune, 0, len(runes))
-	for _, r := range runes {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') || r == '-' || r == '_' {
-			filtered = append(filtered, r)
-		}
-	}
-	return filtered
+	return filterRunes(runes, isAllowedPRDNameRune)
 }
 
 // filterBranchNameRunes drops any rune outside the allowed branch-name
 // character set ([a-zA-Z0-9_/-]). Returns a new slice so the caller can safely
 // forward the filtered KeyMsg to the textinput.
 func filterBranchNameRunes(runes []rune) []rune {
+	return filterRunes(runes, isAllowedBranchNameRune)
+}
+
+func filterRunes(runes []rune, allowed func(rune) bool) []rune {
 	filtered := make([]rune, 0, len(runes))
 	for _, r := range runes {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' {
+		if allowed(r) {
 			filtered = append(filtered, r)
 		}
 	}
 	return filtered
+}
+
+// normalizePastedRunes is the paste-time counterpart of filterRunes: instead
+// of silently dropping disallowed runes, it replaces any interior run of
+// disallowed runes with a single '-' and strips disallowed runes at the start
+// and end. Consecutive '-' runes (either already present in the paste or
+// introduced by the replacement) collapse to a single '-' so the result never
+// contains "--". Normalization is scoped to the pasted content — adjacency
+// with runes already in the target field is intentionally not considered.
+func normalizePastedRunes(runes []rune, allowed func(rune) bool) []rune {
+	start := 0
+	for start < len(runes) && !allowed(runes[start]) {
+		start++
+	}
+	end := len(runes)
+	for end > start && !allowed(runes[end-1]) {
+		end--
+	}
+
+	out := make([]rune, 0, end-start)
+	pendingDash := false
+	for i := start; i < end; i++ {
+		r := runes[i]
+		if !allowed(r) {
+			pendingDash = true
+			continue
+		}
+		if r == '-' {
+			pendingDash = false
+			if len(out) > 0 && out[len(out)-1] == '-' {
+				continue
+			}
+			out = append(out, '-')
+			continue
+		}
+		if pendingDash {
+			if len(out) == 0 || out[len(out)-1] != '-' {
+				out = append(out, '-')
+			}
+			pendingDash = false
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // wordBackward returns the caret position after a word-jump-left from pos,

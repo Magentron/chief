@@ -162,11 +162,13 @@ func TestPickerInput_SpaceKeyIsFiltered(t *testing.T) {
 	}
 }
 
-// TestPickerInput_PasteFiltersInvalidChars: paste "my feature/v2!" → "myfeaturev2".
+// TestPickerInput_PasteFiltersInvalidChars: paste "my feature/v2!" →
+// "my-feature-v2" (interior invalid runs collapsed to '-', trailing '!'
+// stripped).
 func TestPickerInput_PasteFiltersInvalidChars(t *testing.T) {
 	p := newPickerInputMode(t, "")
 	sendPickerKey(t, p, pasteMsg("my feature/v2!"))
-	if got, want := p.ti.Value(), "myfeaturev2"; got != want {
+	if got, want := p.ti.Value(), "my-feature-v2"; got != want {
 		t.Fatalf("paste filtered: got %q, want %q", got, want)
 	}
 }
@@ -179,6 +181,39 @@ func TestPickerInput_PasteTripleMaxLengthTruncates(t *testing.T) {
 	sendPickerKey(t, p, pasteMsg(strings.Repeat("a", maxPRDNameLength*3)))
 	if got := len(p.ti.Value()); got != maxPRDNameLength {
 		t.Fatalf("paste length: got %d, want %d", got, maxPRDNameLength)
+	}
+}
+
+// TestPickerInput_PasteCollapsesInteriorRunAndStripsEnds exercises the full
+// paste normalization rule for the picker's new-PRD-name input.
+func TestPickerInput_PasteCollapsesInteriorRunAndStripsEnds(t *testing.T) {
+	p := newPickerInputMode(t, "")
+	sendPickerKey(t, p, pasteMsg("!!foo---@@bar!!"))
+	if got, want := p.ti.Value(), "foo-bar"; got != want {
+		t.Fatalf("normalized paste: got %q, want %q", got, want)
+	}
+}
+
+// TestPickerInput_PasteAllInvalidIsNoOp verifies that an all-invalid paste
+// normalizes to an empty slice and leaves the value unchanged.
+func TestPickerInput_PasteAllInvalidIsNoOp(t *testing.T) {
+	p := newPickerInputMode(t, "main")
+	sendPickerKey(t, p, pasteMsg("! @ # $"))
+	if got, want := p.ti.Value(), "main"; got != want {
+		t.Fatalf("all-invalid paste should not change value: got %q, want %q", got, want)
+	}
+}
+
+// TestPickerInput_PasteWithoutBracketedFlagAlsoNormalized mirrors the
+// FirstTimeSetup coverage at the picker widget: a multi-rune KeyRunes event
+// without Paste=true (terminals without bracketed paste) is treated as a
+// paste and normalized — runs of invalid chars collapse to '-', trailing
+// invalid chars are stripped.
+func TestPickerInput_PasteWithoutBracketedFlagAlsoNormalized(t *testing.T) {
+	p := newPickerInputMode(t, "")
+	sendPickerKey(t, p, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ab/cd!")})
+	if got, want := p.ti.Value(), "ab-cd"; got != want {
+		t.Fatalf("non-bracketed multi-rune paste: got %q, want %q", got, want)
 	}
 }
 

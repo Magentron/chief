@@ -339,7 +339,11 @@ func (p *PRDPicker) UpdateInput(msg tea.KeyMsg) tea.Cmd {
 	}
 
 	if isTextualKey(msg) {
-		msg.Runes = filterPRDNameRunes(msg.Runes)
+		if isPasteLike(msg) {
+			msg.Runes = normalizePastedRunes(msg.Runes, isAllowedPRDNameRune)
+		} else {
+			msg.Runes = filterPRDNameRunes(msg.Runes)
+		}
 	}
 
 	var cmd tea.Cmd

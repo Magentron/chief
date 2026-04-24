@@ -248,7 +248,11 @@ func (b *BranchWarning) UpdateInput(msg tea.KeyMsg) tea.Cmd {
 	}
 
 	if isTextualKey(msg) {
-		msg.Runes = filterBranchNameRunes(msg.Runes)
+		if isPasteLike(msg) {
+			msg.Runes = normalizePastedRunes(msg.Runes, isAllowedBranchNameRune)
+		} else {
+			msg.Runes = filterBranchNameRunes(msg.Runes)
+		}
 	}
 
 	var cmd tea.Cmd

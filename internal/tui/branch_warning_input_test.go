@@ -162,12 +162,13 @@ func TestBranchInput_SpaceKeyIsFiltered(t *testing.T) {
 }
 
 // TestBranchInput_PasteKeepsSlash: branch-name charset includes `/`, so a
-// paste like "feat/oops bad!" yields "feat/oopsbad" — NOT "feat-oops-bad" or
-// "featoopsbad". Locks in the charset difference from the PRD-name filter.
+// paste like "feat/oops bad!" yields "feat/oops-bad" — the interior space
+// collapses to '-' while '/' is preserved (charset difference from the
+// PRD-name filter), and the trailing '!' is stripped.
 func TestBranchInput_PasteKeepsSlash(t *testing.T) {
 	bw := newBranchEditMode(t, "")
 	sendBranchKey(t, bw, pasteMsg("feat/oops bad!"))
-	if got, want := bw.GetSuggestedBranch(), "feat/oopsbad"; got != want {
+	if got, want := bw.GetSuggestedBranch(), "feat/oops-bad"; got != want {
 		t.Fatalf("paste 'feat/oops bad!': got %q, want %q", got, want)
 	}
 }
@@ -180,6 +181,41 @@ func TestBranchInput_PasteTripleMaxLengthTruncates(t *testing.T) {
 	sendBranchKey(t, bw, pasteMsg(strings.Repeat("a", maxBranchNameLength*3)))
 	if got := len(bw.GetSuggestedBranch()); got != maxBranchNameLength {
 		t.Fatalf("paste length: got %d, want %d", got, maxBranchNameLength)
+	}
+}
+
+// TestBranchInput_PasteCollapsesInteriorRunAndStripsEnds exercises the full
+// paste normalization rule for the branch-name input: leading/trailing
+// invalid runes are stripped, interior runs collapse to '-', and consecutive
+// '-' collapse. '/' stays since it is in the branch-name charset.
+func TestBranchInput_PasteCollapsesInteriorRunAndStripsEnds(t *testing.T) {
+	bw := newBranchEditMode(t, "")
+	sendBranchKey(t, bw, pasteMsg("!!feat/oops---@@bar!!"))
+	if got, want := bw.GetSuggestedBranch(), "feat/oops-bar"; got != want {
+		t.Fatalf("normalized paste: got %q, want %q", got, want)
+	}
+}
+
+// TestBranchInput_PasteAllInvalidIsNoOp verifies that an all-invalid paste
+// normalizes to empty and leaves the value unchanged.
+func TestBranchInput_PasteAllInvalidIsNoOp(t *testing.T) {
+	bw := newBranchEditMode(t, "feat/existing")
+	sendBranchKey(t, bw, pasteMsg("! @ # $"))
+	if got, want := bw.GetSuggestedBranch(), "feat/existing"; got != want {
+		t.Fatalf("all-invalid paste should not change value: got %q, want %q", got, want)
+	}
+}
+
+// TestBranchInput_PasteWithoutBracketedFlagAlsoNormalized mirrors the
+// picker/FirstTimeSetup coverage at the branch-warning widget: a multi-rune
+// KeyRunes event without Paste=true is treated as a paste and normalized.
+// '/' is in the branch-name charset so it is preserved; the interior space
+// collapses to '-' and the trailing '!' is stripped.
+func TestBranchInput_PasteWithoutBracketedFlagAlsoNormalized(t *testing.T) {
+	bw := newBranchEditMode(t, "")
+	sendBranchKey(t, bw, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("feat/oops bad!")})
+	if got, want := bw.GetSuggestedBranch(), "feat/oops-bad"; got != want {
+		t.Fatalf("non-bracketed multi-rune paste: got %q, want %q", got, want)
 	}
 }
 
