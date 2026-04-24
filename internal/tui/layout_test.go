@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/minicodemonkey/chief/internal/agent"
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/Magentron/chief/internal/agent"
+	"github.com/Magentron/chief/internal/loop"
 )
 
 func TestIsNarrowMode(t *testing.T) {

@@ -9,10 +9,10 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/minicodemonkey/chief/internal/config"
-	"github.com/minicodemonkey/chief/internal/git"
-	"github.com/minicodemonkey/chief/internal/loop"
-	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/Magentron/chief/internal/config"
+	"github.com/Magentron/chief/internal/git"
+	"github.com/Magentron/chief/internal/loop"
+	"github.com/Magentron/chief/internal/prd"
 )
 
 // PRDUpdateMsg is sent when the PRD file changes.

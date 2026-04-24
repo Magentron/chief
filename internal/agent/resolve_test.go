@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/minicodemonkey/chief/internal/config"
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/Magentron/chief/internal/config"
+	"github.com/Magentron/chief/internal/loop"
 )
 
 func mustResolve(t *testing.T, flagAgent, flagPath string, cfg *config.Config) loop.Provider {

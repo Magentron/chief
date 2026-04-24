@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/minicodemonkey/chief/internal/loop"
-	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/Magentron/chief/internal/loop"
+	"github.com/Magentron/chief/internal/prd"
 )
 
 // TabEntry represents a PRD tab in the tab bar.

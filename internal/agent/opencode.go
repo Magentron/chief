@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/Magentron/chief/internal/loop"
 )
 
 type OpenCodeProvider struct {

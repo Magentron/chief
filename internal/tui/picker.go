@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/minicodemonkey/chief/internal/git"
-	"github.com/minicodemonkey/chief/internal/loop"
-	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/Magentron/chief/internal/git"
+	"github.com/Magentron/chief/internal/loop"
+	"github.com/Magentron/chief/internal/prd"
 )
 
 // PRDEntry represents a PRD in the picker list.

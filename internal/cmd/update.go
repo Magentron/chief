@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/minicodemonkey/chief/internal/update"
+	"github.com/Magentron/chief/internal/update"
 )
 
 // UpdateOptions holds configuration for the update command.

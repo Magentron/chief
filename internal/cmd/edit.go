@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/minicodemonkey/chief/embed"
-	"github.com/minicodemonkey/chief/internal/loop"
-	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/Magentron/chief/embed"
+	"github.com/Magentron/chief/internal/loop"
+	"github.com/Magentron/chief/internal/prd"
 )
 
 // EditOptions contains configuration for the edit command.

@@ -1,5 +1,7 @@
 # Chief
 
+[forked from [MiniCodeMonkey/chief](https://github.com/MiniCodeMonkey/chief)]]
+
 <p align="center">
   <img src="assets/hero.png" alt="Chief" width="500">
 </p>
@@ -13,13 +15,13 @@ Build big projects with Claude. Chief breaks your work into tasks and runs Claud
 ## Install
 
 ```bash
-brew install minicodemonkey/chief/chief
+go install github.com/Magentron/chief
 ```
 
 Or via install script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Magentron/chief/refs/heads/main/install.sh | sh
 ```
 
 ## Usage
@@ -62,6 +64,7 @@ MIT
 
 ## Acknowledgments
 
+- [Mathias Hansen (MiniCodeMonkey)](https://github.com/MiniCodeMonkey) - Original Chief project
 - [@Simon-BEE](https://github.com/Simon-BEE) — Multi-agent architecture and Codex CLI integration
 - [@tpaulshippy](https://github.com/tpaulshippy) — OpenCode CLI support and NDJSON parser
 - [snarktank/ralph](https://github.com/snarktank/ralph) — The original Ralph implementation that inspired this project

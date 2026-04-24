@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/minicodemonkey/chief/internal/update"
+	"github.com/Magentron/chief/internal/update"
 )
 
 func TestRunUpdate_AlreadyLatest(t *testing.T) {
