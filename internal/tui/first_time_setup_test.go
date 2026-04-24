@@ -236,9 +236,9 @@ func TestFilterValidPRDRunes(t *testing.T) {
 		{[]rune("emoji-😀-here"), []rune("emoji--here")},
 	}
 	for _, tc := range tests {
-		got := filterValidPRDRunes(tc.in)
+		got := filterPRDNameRunes(tc.in)
 		if string(got) != string(tc.want) {
-			t.Errorf("filterValidPRDRunes(%q) = %q, want %q", string(tc.in), string(got), string(tc.want))
+			t.Errorf("filterPRDNameRunes(%q) = %q, want %q", string(tc.in), string(got), string(tc.want))
 		}
 	}
 }

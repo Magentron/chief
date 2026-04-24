@@ -229,11 +229,11 @@ func (f FirstTimeSetup) handlePRDNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// would treat the whole identifier as one word and collapse Ctrl+Left/Right
 	// to Home/End.
 	case "ctrl+left", "alt+left", "alt+b":
-		f.ti.SetCursor(prdNameWordBackward([]rune(f.ti.Value()), f.ti.Position()))
+		f.ti.SetCursor(wordBackward([]rune(f.ti.Value()), f.ti.Position(), prdNameSeparators))
 		return f, nil
 
 	case "ctrl+right", "alt+right", "alt+f":
-		f.ti.SetCursor(prdNameWordForward([]rune(f.ti.Value()), f.ti.Position()))
+		f.ti.SetCursor(wordForward([]rune(f.ti.Value()), f.ti.Position(), prdNameSeparators))
 		return f, nil
 	}
 
@@ -244,7 +244,7 @@ func (f FirstTimeSetup) handlePRDNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Alt+Backspace, etc.) pass through unchanged so the bubbles default key
 	// bindings keep working.
 	if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
-		msg.Runes = filterValidPRDRunes(msg.Runes)
+		msg.Runes = filterPRDNameRunes(msg.Runes)
 	}
 
 	before := f.ti.Value()
@@ -254,58 +254,6 @@ func (f FirstTimeSetup) handlePRDNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		f.prdNameError = ""
 	}
 	return f, cmd
-}
-
-// prdNameWordBackward returns the caret position after a word-jump-left from
-// pos, treating `-` and `_` as word separators. Mirrors bubbles'
-// wordBackward structure (skip separators, then skip non-separators) so
-// behavior is predictable next to the built-in key bindings.
-func prdNameWordBackward(value []rune, pos int) int {
-	if pos <= 0 || len(value) == 0 {
-		return 0
-	}
-	i := pos - 1
-	for i >= 0 && isPRDNameWordSeparator(value[i]) {
-		i--
-	}
-	for i >= 0 && !isPRDNameWordSeparator(value[i]) {
-		i--
-	}
-	return i + 1
-}
-
-// prdNameWordForward is the forward counterpart of prdNameWordBackward.
-func prdNameWordForward(value []rune, pos int) int {
-	n := len(value)
-	if pos >= n {
-		return n
-	}
-	i := pos
-	for i < n && isPRDNameWordSeparator(value[i]) {
-		i++
-	}
-	for i < n && !isPRDNameWordSeparator(value[i]) {
-		i++
-	}
-	return i
-}
-
-func isPRDNameWordSeparator(r rune) bool {
-	return r == '-' || r == '_'
-}
-
-// filterValidPRDRunes drops any rune outside the allowed PRD-name character
-// set ([a-zA-Z0-9_-]). Returns a new slice so the caller can safely forward
-// the filtered KeyMsg to the textinput.
-func filterValidPRDRunes(runes []rune) []rune {
-	filtered := make([]rune, 0, len(runes))
-	for _, r := range runes {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') || r == '-' || r == '_' {
-			filtered = append(filtered, r)
-		}
-	}
-	return filtered
 }
 
 // isValidPRDName checks if a name is valid for a PRD.

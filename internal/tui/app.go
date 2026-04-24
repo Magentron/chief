@@ -605,8 +605,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.viewMode == ViewDashboard || a.viewMode == ViewLog || a.viewMode == ViewDiff {
 				a.picker.Refresh()
 				a.picker.SetSize(a.width, a.height)
-				a.picker.StartInputMode()
+				cmd := a.picker.StartInputMode()
 				a.viewMode = ViewPicker
+				return a, cmd
 			}
 			return a, nil
 
@@ -1851,16 +1852,9 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			a.picker.CancelInputMode()
 			return a, nil
-		case "backspace":
-			a.picker.DeleteInputChar()
-			return a, nil
-		default:
-			// Handle character input
-			if len(msg.String()) == 1 {
-				a.picker.AddInputChar(rune(msg.String()[0]))
-			}
-			return a, nil
 		}
+		cmd := a.picker.UpdateInput(msg)
+		return a, cmd
 	}
 
 	// Dismiss clean result on any key
@@ -1904,8 +1898,8 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case "n":
-		a.picker.StartInputMode()
-		return a, nil
+		cmd := a.picker.StartInputMode()
+		return a, cmd
 	case "e":
 		// Edit the selected PRD - launch interactive Claude session
 		entry := a.picker.GetSelectedEntry()
