@@ -450,12 +450,13 @@ func TestPRDName_PasteAllValidInsertsAtCaret(t *testing.T) {
 	}
 }
 
-// TestPRDName_PasteFiltersInvalidChars (US-004 AC2): invalid characters are
-// silently dropped and no error is shown.
+// TestPRDName_PasteFiltersInvalidChars (US-004 AC2): interior runs of
+// invalid characters collapse to a single '-', trailing invalid characters
+// are stripped, and no error is shown.
 func TestPRDName_PasteFiltersInvalidChars(t *testing.T) {
 	f := newPRDNameSetup(t, "")
 	f = sendKey(t, f, pasteMsg("my feature/v2!"))
-	if got, want := f.ti.Value(), "myfeaturev2"; got != want {
+	if got, want := f.ti.Value(), "my-feature-v2"; got != want {
 		t.Fatalf("paste with invalid chars: got %q, want %q", got, want)
 	}
 	if f.prdNameError != "" {
@@ -494,12 +495,13 @@ func TestPRDName_PasteAtMiddleCaretSplices(t *testing.T) {
 }
 
 // TestPRDName_PasteAtMiddleCaretSplicesWithFiltering combines AC2 and AC4: an
-// in-middle paste with invalid chars splices only the valid subset.
+// in-middle paste with invalid chars splices the normalized paste (interior
+// runs of invalid chars collapsed to '-') into the middle of the value.
 func TestPRDName_PasteAtMiddleCaretSplicesWithFiltering(t *testing.T) {
 	f := newPRDNameSetup(t, "main")
 	f.ti.SetCursor(2)
 	f = sendKey(t, f, pasteMsg("X Y/Z"))
-	if got, want := f.ti.Value(), "maXYZin"; got != want {
+	if got, want := f.ti.Value(), "maX-Y-Zin"; got != want {
 		t.Fatalf("filtered paste mid-buffer: got %q, want %q", got, want)
 	}
 }
@@ -537,14 +539,41 @@ func TestPRDName_PasteAllInvalidIsNoOp(t *testing.T) {
 	}
 }
 
-// TestPRDName_PasteWithoutBracketedFlagAlsoFiltered verifies the same filter
-// path handles a multi-rune KeyRunes event that lacks Paste=true (the
-// fallback path when bracketed paste is disabled in the terminal).
-func TestPRDName_PasteWithoutBracketedFlagAlsoFiltered(t *testing.T) {
+// TestPRDName_PasteWithoutBracketedFlagAlsoNormalized verifies that a
+// multi-rune KeyRunes event is treated as a paste even when Paste=false (the
+// fallback path for terminals without bracketed paste): runs of invalid
+// characters collapse to '-' and trailing invalid characters are stripped,
+// matching the bracketed-paste path.
+func TestPRDName_PasteWithoutBracketedFlagAlsoNormalized(t *testing.T) {
 	f := newPRDNameSetup(t, "")
 	f = sendKey(t, f, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ab/cd!")})
-	if got, want := f.ti.Value(), "abcd"; got != want {
+	if got, want := f.ti.Value(), "ab-cd"; got != want {
 		t.Fatalf("non-bracketed multi-rune paste: got %q, want %q", got, want)
+	}
+}
+
+// TestPRDName_PasteDoesNotDedupeAcrossBoundary locks the deliberate decision
+// that paste normalization looks only at the pasted content: if the existing
+// field ends with '-' and the paste starts with '-', the result contains
+// "--" (the paste-side '-' is a leading valid rune, not collapsed against
+// the field's trailing '-').
+func TestPRDName_PasteDoesNotDedupeAcrossBoundary(t *testing.T) {
+	f := newPRDNameSetup(t, "abc-")
+	f = sendKey(t, f, pasteMsg("-xyz"))
+	if got, want := f.ti.Value(), "abc--xyz"; got != want {
+		t.Fatalf("paste should not dedupe across field boundary: got %q, want %q", got, want)
+	}
+}
+
+// TestPRDName_PasteCollapsesInteriorRunAndStripsEnds exercises the full
+// normalization rule end-to-end at the widget level: leading invalid runes
+// are stripped, an interior run of invalid runes collapses to a single '-',
+// consecutive '-' collapse, and trailing invalid runes are stripped.
+func TestPRDName_PasteCollapsesInteriorRunAndStripsEnds(t *testing.T) {
+	f := newPRDNameSetup(t, "")
+	f = sendKey(t, f, pasteMsg("!!foo---@@bar!!"))
+	if got, want := f.ti.Value(), "foo-bar"; got != want {
+		t.Fatalf("normalized paste: got %q, want %q", got, want)
 	}
 }
 
@@ -646,11 +675,12 @@ func TestUS006_InvalidMultiByteRunesSilentlyRejected(t *testing.T) {
 }
 
 // TestUS006_PasteMyFeatureV2: pasting "my feature/v2!" into an empty field
-// yields "myfeaturev2".
+// yields "my-feature-v2" — interior runs of invalid characters collapse to
+// a single '-' and trailing invalid characters are stripped.
 func TestUS006_PasteMyFeatureV2(t *testing.T) {
 	f := newPRDNameSetup(t, "")
 	f = updateKey(t, f, pasteMsg("my feature/v2!"))
-	if got, want := f.ti.Value(), "myfeaturev2"; got != want {
+	if got, want := f.ti.Value(), "my-feature-v2"; got != want {
 		t.Fatalf("paste 'my feature/v2!': got %q, want %q", got, want)
 	}
 }
