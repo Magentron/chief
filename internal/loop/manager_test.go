@@ -274,6 +274,46 @@ func liveLoopFor(t *testing.T, m *Manager, name string) *Loop {
 	return loop
 }
 
+// TestGetInstanceOmitsRuntimeFields pins the contract documented on
+// Manager.GetInstance: the returned snapshot must not expose the live Loop
+// pointer (or ctx / cancel) so callers can't mutate runtime state from
+// outside the manager. If a future change "helpfully" populates Loop on the
+// snapshot, liveLoopFor becomes redundant and external callers gain a way
+// to bypass the manager API — fix the doc and the helper at the same time.
+func TestGetInstanceOmitsRuntimeFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
+
+	m := NewManager(10, testProvider)
+	if err := m.Register("test-prd", prdPath); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+	if err := m.Start("test-prd"); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	defer m.Stop("test-prd")
+
+	snapshot := m.GetInstance("test-prd")
+	if snapshot == nil {
+		t.Fatal("expected non-nil snapshot")
+	}
+	if snapshot.Loop != nil {
+		t.Error("GetInstance leaked live Loop pointer; runtime state should be hidden")
+	}
+	if snapshot.ctx != nil {
+		t.Error("GetInstance leaked ctx; runtime state should be hidden")
+	}
+	if snapshot.cancel != nil {
+		t.Error("GetInstance leaked cancel; runtime state should be hidden")
+	}
+
+	// Sanity: the live instance held by the manager *does* have the Loop,
+	// confirming the omission is on the snapshot, not on the underlying state.
+	if liveLoopFor(t, m, "test-prd") == nil {
+		t.Fatal("live instance unexpectedly missing Loop")
+	}
+}
+
 func TestManagerStartAppliesWatchdogTimeoutFromConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
