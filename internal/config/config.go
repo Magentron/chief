@@ -83,6 +83,63 @@ func (c *Config) BashTimeoutWarning() string {
 type AgentConfig struct {
 	Provider string `yaml:"provider"` // "claude" (default) | "codex" | "opencode" | "cursor"
 	CLIPath  string `yaml:"cliPath"`  // optional custom path to CLI binary
+	// WatchdogTimeout bounds how long Chief will wait without any output
+	// from the agent before killing the process as hung. Go duration string
+	// (e.g. "5m", "30m"). Empty / unparseable values use
+	// DefaultAgentWatchdogTimeout. "0s" disables the watchdog.
+	//
+	// This is the right knob to bump when the agent runs long, quiet
+	// commands as part of acceptance criteria (e.g. integration test
+	// suites that produce no stdout for several minutes).
+	WatchdogTimeout string `yaml:"watchdogTimeout"`
+}
+
+// DefaultAgentWatchdogTimeout is applied when agent.watchdogTimeout is unset
+// or unparseable. Matches the historical hardcoded watchdog timeout so users
+// upgrading without setting an explicit value see no behaviour change.
+const DefaultAgentWatchdogTimeout = 5 * time.Minute
+
+// AgentWatchdogTimeout returns the configured agent watchdog timeout.
+// Empty values use DefaultAgentWatchdogTimeout; unparseable or negative
+// values fall back to the default (AgentWatchdogTimeoutWarning describes
+// the fallback). An explicit "0s" returns 0, which loop.SetWatchdogTimeout
+// interprets as "watchdog disabled".
+//
+// Nil-safe: returns DefaultAgentWatchdogTimeout when c is nil.
+func (c *Config) AgentWatchdogTimeout() time.Duration {
+	if c == nil {
+		return DefaultAgentWatchdogTimeout
+	}
+	v := strings.TrimSpace(c.Agent.WatchdogTimeout)
+	if v == "" {
+		return DefaultAgentWatchdogTimeout
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return DefaultAgentWatchdogTimeout
+	}
+	return d
+}
+
+// AgentWatchdogTimeoutWarning returns a human-readable warning when the
+// configured agent.watchdogTimeout value is non-empty but unparseable or
+// negative. Returns "" when empty, valid, or when c is nil.
+func (c *Config) AgentWatchdogTimeoutWarning() string {
+	if c == nil {
+		return ""
+	}
+	v := strings.TrimSpace(c.Agent.WatchdogTimeout)
+	if v == "" {
+		return ""
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return fmt.Sprintf("agent.watchdogTimeout %q is not a valid duration; using default %s", v, DefaultAgentWatchdogTimeout)
+	}
+	if d < 0 {
+		return fmt.Sprintf("agent.watchdogTimeout %q is negative; using default %s", v, DefaultAgentWatchdogTimeout)
+	}
+	return ""
 }
 
 // WorktreeConfig holds worktree-related settings.

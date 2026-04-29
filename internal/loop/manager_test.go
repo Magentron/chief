@@ -240,6 +240,53 @@ func TestManagerStartRequiresProvider(t *testing.T) {
 	}
 }
 
+func TestManagerStartAppliesWatchdogTimeoutFromConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
+
+	m := NewManager(10, testProvider)
+	m.SetConfig(&config.Config{
+		Agent: config.AgentConfig{WatchdogTimeout: "20m"},
+	})
+	if err := m.Register("test-prd", prdPath); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	if err := m.Start("test-prd"); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	defer m.Stop("test-prd")
+
+	instance := m.GetInstance("test-prd")
+	if instance == nil || instance.Loop == nil {
+		t.Fatal("expected loop instance after Start")
+	}
+	if got := instance.Loop.WatchdogTimeout(); got != 20*time.Minute {
+		t.Errorf("expected watchdog timeout 20m, got %v", got)
+	}
+}
+
+func TestManagerStartUsesDefaultWatchdogWhenConfigUnset(t *testing.T) {
+	tmpDir := t.TempDir()
+	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
+
+	m := NewManager(10, testProvider)
+	// No SetConfig: m.config remains nil. Loop should keep its built-in
+	// DefaultWatchdogTimeout rather than getting overwritten with 0.
+	if err := m.Register("test-prd", prdPath); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+	if err := m.Start("test-prd"); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	defer m.Stop("test-prd")
+
+	instance := m.GetInstance("test-prd")
+	if got := instance.Loop.WatchdogTimeout(); got != DefaultWatchdogTimeout {
+		t.Errorf("expected default watchdog %v, got %v", DefaultWatchdogTimeout, got)
+	}
+}
+
 func TestManagerConcurrentAccess(t *testing.T) {
 	tmpDir := t.TempDir()
 	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")

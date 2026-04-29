@@ -64,6 +64,7 @@ func (s *SettingsOverlay) LoadFromConfig(cfg *config.Config) {
 	s.items = []SettingsItem{
 		{Section: "Worktree", Label: "Setup command", Key: "worktree.setup", Type: SettingsItemString, StringVal: cfg.Worktree.Setup},
 		{Section: "Bash", Label: "Command timeout", Key: "bash.timeout", Type: SettingsItemString, StringVal: cfg.Bash.Timeout},
+		{Section: "Agent", Label: "Watchdog timeout", Key: "agent.watchdogTimeout", Type: SettingsItemString, StringVal: cfg.Agent.WatchdogTimeout},
 		{Section: "On Complete", Label: "Push to remote", Key: "onComplete.push", Type: SettingsItemBool, BoolVal: cfg.OnComplete.Push},
 		{Section: "On Complete", Label: "Create pull request", Key: "onComplete.createPR", Type: SettingsItemBool, BoolVal: cfg.OnComplete.CreatePR},
 	}
@@ -83,6 +84,8 @@ func (s *SettingsOverlay) ApplyToConfig(cfg *config.Config) {
 			cfg.Worktree.Setup = item.StringVal
 		case "bash.timeout":
 			cfg.Bash.Timeout = item.StringVal
+		case "agent.watchdogTimeout":
+			cfg.Agent.WatchdogTimeout = item.StringVal
 		case "onComplete.push":
 			cfg.OnComplete.Push = item.BoolVal
 		case "onComplete.createPR":
@@ -133,7 +136,7 @@ func (s *SettingsOverlay) ConfirmEdit() {
 		s.editError = msg
 		return
 	}
-	if item.Key == "bash.timeout" {
+	if isDurationKey(item.Key) {
 		value = strings.TrimSpace(value)
 	}
 	item.StringVal = value
@@ -142,10 +145,20 @@ func (s *SettingsOverlay) ConfirmEdit() {
 	s.editError = ""
 }
 
+// isDurationKey reports whether key holds a Go duration string subject to
+// the validateSetting parsing rules.
+func isDurationKey(key string) bool {
+	switch key {
+	case "bash.timeout", "agent.watchdogTimeout":
+		return true
+	}
+	return false
+}
+
 // validateSetting returns an empty string when value is acceptable for key,
 // or a human-readable error message otherwise.
 func validateSetting(key, value string) string {
-	if key != "bash.timeout" {
+	if !isDurationKey(key) {
 		return ""
 	}
 	trimmed := strings.TrimSpace(value)

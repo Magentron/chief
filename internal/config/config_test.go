@@ -135,6 +135,82 @@ func TestBashTimeoutWarning(t *testing.T) {
 	}
 }
 
+func TestAgentWatchdogTimeout(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want time.Duration
+	}{
+		{"empty uses default", "", DefaultAgentWatchdogTimeout},
+		{"valid minutes", "20m", 20 * time.Minute},
+		{"valid hours", "1h", time.Hour},
+		{"whitespace padded", "  20m  ", 20 * time.Minute},
+		{"invalid falls back to default", "ten-minutes", DefaultAgentWatchdogTimeout},
+		{"negative falls back to default", "-5m", DefaultAgentWatchdogTimeout},
+		{"zero disables watchdog", "0s", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{Agent: AgentConfig{WatchdogTimeout: tc.in}}
+			got := cfg.AgentWatchdogTimeout()
+			if got != tc.want {
+				t.Errorf("AgentWatchdogTimeout(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAgentWatchdogTimeout_NilSafe(t *testing.T) {
+	var cfg *Config
+	if got := cfg.AgentWatchdogTimeout(); got != DefaultAgentWatchdogTimeout {
+		t.Errorf("nil cfg AgentWatchdogTimeout() = %v, want %v", got, DefaultAgentWatchdogTimeout)
+	}
+	if got := cfg.AgentWatchdogTimeoutWarning(); got != "" {
+		t.Errorf("nil cfg AgentWatchdogTimeoutWarning() = %q, want empty", got)
+	}
+}
+
+func TestAgentWatchdogTimeoutWarning(t *testing.T) {
+	cases := []struct {
+		name      string
+		in        string
+		wantEmpty bool
+	}{
+		{"empty -> no warning", "", true},
+		{"valid -> no warning", "20m", true},
+		{"zero -> no warning", "0s", true},
+		{"invalid -> warning", "ten-minutes", false},
+		{"negative -> warning", "-5m", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{Agent: AgentConfig{WatchdogTimeout: tc.in}}
+			got := cfg.AgentWatchdogTimeoutWarning()
+			if (got == "") != tc.wantEmpty {
+				t.Errorf("AgentWatchdogTimeoutWarning(%q) = %q, wantEmpty=%v", tc.in, got, tc.wantEmpty)
+			}
+		})
+	}
+}
+
+func TestSaveAndLoadAgentWatchdogTimeout(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{Agent: AgentConfig{WatchdogTimeout: "20m"}}
+	if err := Save(dir, cfg); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded.Agent.WatchdogTimeout != "20m" {
+		t.Errorf("expected agent.watchdogTimeout='20m', got %q", loaded.Agent.WatchdogTimeout)
+	}
+	if loaded.AgentWatchdogTimeout() != 20*time.Minute {
+		t.Errorf("expected AgentWatchdogTimeout()=20m, got %v", loaded.AgentWatchdogTimeout())
+	}
+}
+
 func TestSaveAndLoadBashTimeout(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &Config{Bash: BashConfig{Timeout: "2m"}}

@@ -20,8 +20,8 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	if len(s.items) != 4 {
-		t.Fatalf("expected 4 items, got %d", len(s.items))
+	if len(s.items) != 5 {
+		t.Fatalf("expected 5 items, got %d", len(s.items))
 	}
 	if s.items[0].Key != "worktree.setup" || s.items[0].StringVal != "npm install" {
 		t.Errorf("worktree.setup item: got key=%s val=%s", s.items[0].Key, s.items[0].StringVal)
@@ -29,11 +29,14 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	if s.items[1].Key != "bash.timeout" {
 		t.Errorf("bash.timeout item: got key=%s", s.items[1].Key)
 	}
-	if s.items[2].Key != "onComplete.push" || !s.items[2].BoolVal {
-		t.Errorf("onComplete.push item: got key=%s val=%v", s.items[2].Key, s.items[2].BoolVal)
+	if s.items[2].Key != "agent.watchdogTimeout" {
+		t.Errorf("agent.watchdogTimeout item: got key=%s", s.items[2].Key)
 	}
-	if s.items[3].Key != "onComplete.createPR" || s.items[3].BoolVal {
-		t.Errorf("onComplete.createPR item: got key=%s val=%v", s.items[3].Key, s.items[3].BoolVal)
+	if s.items[3].Key != "onComplete.push" || !s.items[3].BoolVal {
+		t.Errorf("onComplete.push item: got key=%s val=%v", s.items[3].Key, s.items[3].BoolVal)
+	}
+	if s.items[4].Key != "onComplete.createPR" || s.items[4].BoolVal {
+		t.Errorf("onComplete.createPR item: got key=%s val=%v", s.items[4].Key, s.items[4].BoolVal)
 	}
 	if s.selectedIndex != 0 {
 		t.Errorf("expected selectedIndex=0, got %d", s.selectedIndex)
@@ -48,8 +51,9 @@ func TestSettingsOverlay_ApplyToConfig(t *testing.T) {
 	// Modify items
 	s.items[0].StringVal = "go mod download"
 	s.items[1].StringVal = "30s"
-	s.items[2].BoolVal = true
+	s.items[2].StringVal = "20m"
 	s.items[3].BoolVal = true
+	s.items[4].BoolVal = true
 
 	resultCfg := config.Default()
 	s.ApplyToConfig(resultCfg)
@@ -59,6 +63,9 @@ func TestSettingsOverlay_ApplyToConfig(t *testing.T) {
 	}
 	if resultCfg.Bash.Timeout != "30s" {
 		t.Errorf("expected bash.timeout='30s', got '%s'", resultCfg.Bash.Timeout)
+	}
+	if resultCfg.Agent.WatchdogTimeout != "20m" {
+		t.Errorf("expected agent.watchdogTimeout='20m', got '%s'", resultCfg.Agent.WatchdogTimeout)
 	}
 	if !resultCfg.OnComplete.Push {
 		t.Error("expected push=true")
@@ -91,18 +98,24 @@ func TestSettingsOverlay_Navigation(t *testing.T) {
 		t.Errorf("expected index=3 after third MoveDown, got %d", s.selectedIndex)
 	}
 
+	s.MoveDown()
+	if s.selectedIndex != 4 {
+		t.Errorf("expected index=4 after fourth MoveDown, got %d", s.selectedIndex)
+	}
+
 	// Can't go beyond last item
 	s.MoveDown()
-	if s.selectedIndex != 3 {
-		t.Errorf("expected index=3 (clamped), got %d", s.selectedIndex)
+	if s.selectedIndex != 4 {
+		t.Errorf("expected index=4 (clamped), got %d", s.selectedIndex)
 	}
 
 	s.MoveUp()
-	if s.selectedIndex != 2 {
-		t.Errorf("expected index=2 after MoveUp, got %d", s.selectedIndex)
+	if s.selectedIndex != 3 {
+		t.Errorf("expected index=3 after MoveUp, got %d", s.selectedIndex)
 	}
 
 	// Can't go before first item
+	s.MoveUp()
 	s.MoveUp()
 	s.MoveUp()
 	s.MoveUp()
@@ -118,7 +131,8 @@ func TestSettingsOverlay_ToggleBool(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	// Select "Push to remote" (index 2: setup, bash.timeout, push)
+	// Select "Push to remote" (index 3: setup, bash.timeout, agent.watchdogTimeout, push)
+	s.MoveDown()
 	s.MoveDown()
 	s.MoveDown()
 
@@ -157,14 +171,15 @@ func TestSettingsOverlay_RevertToggle(t *testing.T) {
 	s.LoadFromConfig(cfg)
 
 	s.MoveDown() // bash.timeout
+	s.MoveDown() // agent.watchdogTimeout
 	s.MoveDown() // Select "Push to remote"
 	s.ToggleBool()
-	if !s.items[2].BoolVal {
+	if !s.items[3].BoolVal {
 		t.Fatal("expected true after toggle")
 	}
 
 	s.RevertToggle()
-	if s.items[2].BoolVal {
+	if s.items[3].BoolVal {
 		t.Error("expected false after revert")
 	}
 }
@@ -243,6 +258,42 @@ func TestSettingsOverlay_BashTimeoutNegativeRejected(t *testing.T) {
 	}
 }
 
+func TestSettingsOverlay_AgentWatchdogTimeoutValidation(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	s.MoveDown() // bash.timeout
+	s.MoveDown() // agent.watchdogTimeout
+	if s.GetSelectedItem().Key != "agent.watchdogTimeout" {
+		t.Fatalf("setup error: expected agent.watchdogTimeout selected, got %q", s.GetSelectedItem().Key)
+	}
+
+	// Invalid duration: rejected, edit mode preserved.
+	s.StartEditing()
+	for _, ch := range "10minutes" {
+		s.AddEditChar(ch)
+	}
+	s.ConfirmEdit()
+	if !s.IsEditing() {
+		t.Fatal("expected to remain in edit mode for invalid duration")
+	}
+	if s.editError == "" {
+		t.Error("expected editError to be set for invalid duration")
+	}
+	if s.GetSelectedItem().StringVal != "" {
+		t.Errorf("expected stored value to remain unchanged, got %q", s.GetSelectedItem().StringVal)
+	}
+
+	// Valid value with surrounding whitespace is trimmed and accepted.
+	s.editBuffer = "  20m  "
+	s.ConfirmEdit()
+	if s.IsEditing() {
+		t.Error("expected valid duration to be accepted")
+	}
+	if s.GetSelectedItem().StringVal != "20m" {
+		t.Errorf("expected stored value '20m', got %q", s.GetSelectedItem().StringVal)
+	}
+}
+
 func TestSettingsOverlay_StringEditing(t *testing.T) {
 	s := NewSettingsOverlay()
 	s.LoadFromConfig(config.Default())
@@ -304,6 +355,7 @@ func TestSettingsOverlay_StartEditingOnBoolItem(t *testing.T) {
 	s := NewSettingsOverlay()
 	s.LoadFromConfig(config.Default())
 	s.MoveDown() // bash.timeout (string)
+	s.MoveDown() // agent.watchdogTimeout (string)
 	s.MoveDown() // Select "Push to remote" (bool)
 
 	s.StartEditing()

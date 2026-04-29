@@ -14,8 +14,9 @@ Chief stores project-level settings in `.chief/config.yaml`. This file is create
 
 ```yaml
 agent:
-  provider: claude   # or "codex", "opencode", or "cursor"
-  cliPath: ""        # optional path to CLI binary
+  provider: claude          # or "codex", "opencode", or "cursor"
+  cliPath: ""               # optional path to CLI binary
+  watchdogTimeout: "20m"    # silence threshold before Chief kills a hung agent
 worktree:
   setup: "npm install"
 bash:
@@ -31,6 +32,7 @@ onComplete:
 |-----|------|---------|-------------|
 | `agent.provider` | string | `"claude"` | Agent CLI to use: `claude`, `codex`, `opencode`, or `cursor` |
 | `agent.cliPath` | string | `""` | Optional path to the agent binary (e.g. `/usr/local/bin/opencode`). If empty, Chief uses the provider name from PATH. |
+| `agent.watchdogTimeout` | string | `5m` | How long Chief will wait without **any** output from the agent before killing it as hung. Go duration string (e.g. `"5m"`, `"30m"`). Bump this if your acceptance criteria run long, quiet commands such as integration tests that produce no stdout for several minutes — the historical 5 minute default is what cuts those runs short. Set `"0s"` to disable the watchdog. Unparseable values fall back to the default. |
 | `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`) |
 | `bash.timeout` | string | `5m` | Maximum runtime for external bash commands invoked by Chief, as a Go duration (e.g. `"30s"`, `"5m"`). When unset (`""`) or unparseable, Chief falls back to the 5 minute default; an unparseable value also surfaces a warning in the worktree spinner so a typo is not silently masked. Set `"0s"` to disable the timeout entirely (use with care for long-running installers). Currently applied to `worktree.setup`. |
 | `onComplete.push` | bool | `false` | Automatically push the branch to remote when a PRD completes |
@@ -67,7 +69,16 @@ bash:
   timeout: "30m"   # or "0s" to disable the timeout entirely
 ```
 
-> **Migration note:** as of this release the worktree setup command is bounded by `bash.timeout` (default `5m`). If you previously relied on no timeout and your setup legitimately runs longer, set an explicit value or `"0s"` to restore the prior behaviour.
+**Long-running test suites in acceptance criteria:**
+
+```yaml
+agent:
+  watchdogTimeout: "30m"  # allow up to 30 minutes of silence (e.g. for slow integration tests)
+```
+
+> **Migration notes:**
+> - The worktree setup command is now bounded by `bash.timeout` (default `5m`). If your setup legitimately runs longer, set an explicit value or `"0s"` to restore the prior unbounded behaviour.
+> - The agent watchdog default is unchanged (5 minutes of silence kills the agent), but it is now configurable. If your acceptance tests run quietly for more than 5 minutes, raise `agent.watchdogTimeout`.
 
 ## Settings TUI
 
@@ -77,13 +88,14 @@ Settings are organized by section:
 
 - **Worktree** — Setup command (string, editable inline)
 - **Bash** — Command timeout (string, editable inline; Go duration like `30s`, `5m`)
+- **Agent** — Watchdog timeout (string, editable inline; Go duration like `20m`)
 - **On Complete** — Push to remote (toggle), Create pull request (toggle)
 
 Changes are saved immediately to `.chief/config.yaml` on every edit.
 
 When toggling "Create pull request" to Yes, Chief validates that the `gh` CLI is installed and authenticated. If validation fails, the toggle reverts and an error message is shown with installation instructions.
 
-When editing **Bash → Command timeout**, the value is validated as a Go duration on save. Invalid or negative values are rejected inline (the editor stays open with an error message) so a typo cannot silently fall back to the default. If a project's `config.yaml` is hand-edited with an invalid value, Chief still uses the 5m default and surfaces a one-line warning in the worktree spinner.
+When editing **Bash → Command timeout** or **Agent → Watchdog timeout**, the value is validated as a Go duration on save. Invalid or negative values are rejected inline (the editor stays open with an error message) so a typo cannot silently fall back to the default. If a project's `config.yaml` is hand-edited with an invalid value, Chief still uses the relevant 5 minute default — for `bash.timeout`, this also surfaces a one-line warning in the worktree spinner.
 
 Navigate with `j`/`k` or arrow keys. Press `Enter` to toggle booleans or edit strings. Press `Esc` to close.
 
