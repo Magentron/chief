@@ -253,6 +253,27 @@ func TestWatchdogDefaultsAreInSync(t *testing.T) {
 	}
 }
 
+// liveLoopFor reaches into the manager's internal instances map to return the
+// live Loop pointer for name. Manager.GetInstance returns a snapshot copy
+// that intentionally omits Loop, which is fine for callers but unhelpful
+// when a test wants to assert on Loop state set by Start.
+func liveLoopFor(t *testing.T, m *Manager, name string) *Loop {
+	t.Helper()
+	m.mu.RLock()
+	instance, ok := m.instances[name]
+	m.mu.RUnlock()
+	if !ok {
+		t.Fatalf("instance %q not registered", name)
+	}
+	instance.mu.Lock()
+	loop := instance.Loop
+	instance.mu.Unlock()
+	if loop == nil {
+		t.Fatalf("instance %q has no Loop after Start", name)
+	}
+	return loop
+}
+
 func TestManagerStartAppliesWatchdogTimeoutFromConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
@@ -264,17 +285,12 @@ func TestManagerStartAppliesWatchdogTimeoutFromConfig(t *testing.T) {
 	if err := m.Register("test-prd", prdPath); err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
-
 	if err := m.Start("test-prd"); err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 	defer m.Stop("test-prd")
 
-	instance := m.GetInstance("test-prd")
-	if instance == nil || instance.Loop == nil {
-		t.Fatal("expected loop instance after Start")
-	}
-	if got := instance.Loop.WatchdogTimeout(); got != 20*time.Minute {
+	if got := liveLoopFor(t, m, "test-prd").WatchdogTimeout(); got != 20*time.Minute {
 		t.Errorf("expected watchdog timeout 20m, got %v", got)
 	}
 }
@@ -295,8 +311,7 @@ func TestManagerStartDisablesWatchdogWhenConfigured(t *testing.T) {
 	}
 	defer m.Stop("test-prd")
 
-	instance := m.GetInstance("test-prd")
-	if got := instance.Loop.WatchdogTimeout(); got != 0 {
+	if got := liveLoopFor(t, m, "test-prd").WatchdogTimeout(); got != 0 {
 		t.Errorf("expected watchdog disabled (0), got %v", got)
 	}
 }
@@ -316,8 +331,7 @@ func TestManagerStartUsesDefaultWatchdogWhenConfigUnset(t *testing.T) {
 	}
 	defer m.Stop("test-prd")
 
-	instance := m.GetInstance("test-prd")
-	if got := instance.Loop.WatchdogTimeout(); got != DefaultWatchdogTimeout {
+	if got := liveLoopFor(t, m, "test-prd").WatchdogTimeout(); got != DefaultWatchdogTimeout {
 		t.Errorf("expected default watchdog %v, got %v", DefaultWatchdogTimeout, got)
 	}
 }
