@@ -18,6 +18,8 @@ agent:
   cliPath: ""        # optional path to CLI binary
 worktree:
   setup: "npm install"
+bash:
+  timeout: "5m"
 onComplete:
   push: true
   createPR: true
@@ -30,6 +32,7 @@ onComplete:
 | `agent.provider` | string | `"claude"` | Agent CLI to use: `claude`, `codex`, `opencode`, or `cursor` |
 | `agent.cliPath` | string | `""` | Optional path to the agent binary (e.g. `/usr/local/bin/opencode`). If empty, Chief uses the provider name from PATH. |
 | `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`) |
+| `bash.timeout` | string | `5m` | Maximum runtime for external bash commands invoked by Chief, as a Go duration (e.g. `"30s"`, `"5m"`). When unset (`""`) or unparseable, Chief falls back to the 5 minute default; an unparseable value also surfaces a warning in the worktree spinner so a typo is not silently masked. Set `"0s"` to disable the timeout entirely (use with care for long-running installers). Currently applied to `worktree.setup`. |
 | `onComplete.push` | bool | `false` | Automatically push the branch to remote when a PRD completes |
 | `onComplete.createPR` | bool | `false` | Automatically create a pull request when a PRD completes (requires `gh` CLI) |
 
@@ -55,6 +58,17 @@ onComplete:
   createPR: true
 ```
 
+**Long-running setup (or disable the timeout):**
+
+```yaml
+worktree:
+  setup: "npm install && docker compose build"
+bash:
+  timeout: "30m"   # or "0s" to disable the timeout entirely
+```
+
+> **Migration note:** as of this release the worktree setup command is bounded by `bash.timeout` (default `5m`). If you previously relied on no timeout and your setup legitimately runs longer, set an explicit value or `"0s"` to restore the prior behaviour.
+
 ## Settings TUI
 
 Press `,` from any view in the TUI to open the Settings overlay. This provides an interactive way to view and edit all config values.
@@ -62,11 +76,14 @@ Press `,` from any view in the TUI to open the Settings overlay. This provides a
 Settings are organized by section:
 
 - **Worktree** — Setup command (string, editable inline)
+- **Bash** — Command timeout (string, editable inline; Go duration like `30s`, `5m`)
 - **On Complete** — Push to remote (toggle), Create pull request (toggle)
 
 Changes are saved immediately to `.chief/config.yaml` on every edit.
 
 When toggling "Create pull request" to Yes, Chief validates that the `gh` CLI is installed and authenticated. If validation fails, the toggle reverts and an error message is shown with installation instructions.
+
+When editing **Bash → Command timeout**, the value is validated as a Go duration on save. Invalid or negative values are rejected inline (the editor stays open with an error message) so a typo cannot silently fall back to the default. If a project's `config.yaml` is hand-edited with an invalid value, Chief still uses the 5m default and surfaces a one-line warning in the worktree spinner.
 
 Navigate with `j`/`k` or arrow keys. Press `Enter` to toggle booleans or edit strings. Press `Esc` to close.
 

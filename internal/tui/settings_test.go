@@ -20,17 +20,20 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	if len(s.items) != 3 {
-		t.Fatalf("expected 3 items, got %d", len(s.items))
+	if len(s.items) != 4 {
+		t.Fatalf("expected 4 items, got %d", len(s.items))
 	}
 	if s.items[0].Key != "worktree.setup" || s.items[0].StringVal != "npm install" {
 		t.Errorf("worktree.setup item: got key=%s val=%s", s.items[0].Key, s.items[0].StringVal)
 	}
-	if s.items[1].Key != "onComplete.push" || !s.items[1].BoolVal {
-		t.Errorf("onComplete.push item: got key=%s val=%v", s.items[1].Key, s.items[1].BoolVal)
+	if s.items[1].Key != "bash.timeout" {
+		t.Errorf("bash.timeout item: got key=%s", s.items[1].Key)
 	}
-	if s.items[2].Key != "onComplete.createPR" || s.items[2].BoolVal {
-		t.Errorf("onComplete.createPR item: got key=%s val=%v", s.items[2].Key, s.items[2].BoolVal)
+	if s.items[2].Key != "onComplete.push" || !s.items[2].BoolVal {
+		t.Errorf("onComplete.push item: got key=%s val=%v", s.items[2].Key, s.items[2].BoolVal)
+	}
+	if s.items[3].Key != "onComplete.createPR" || s.items[3].BoolVal {
+		t.Errorf("onComplete.createPR item: got key=%s val=%v", s.items[3].Key, s.items[3].BoolVal)
 	}
 	if s.selectedIndex != 0 {
 		t.Errorf("expected selectedIndex=0, got %d", s.selectedIndex)
@@ -44,14 +47,18 @@ func TestSettingsOverlay_ApplyToConfig(t *testing.T) {
 
 	// Modify items
 	s.items[0].StringVal = "go mod download"
-	s.items[1].BoolVal = true
+	s.items[1].StringVal = "30s"
 	s.items[2].BoolVal = true
+	s.items[3].BoolVal = true
 
 	resultCfg := config.Default()
 	s.ApplyToConfig(resultCfg)
 
 	if resultCfg.Worktree.Setup != "go mod download" {
 		t.Errorf("expected setup='go mod download', got '%s'", resultCfg.Worktree.Setup)
+	}
+	if resultCfg.Bash.Timeout != "30s" {
+		t.Errorf("expected bash.timeout='30s', got '%s'", resultCfg.Bash.Timeout)
 	}
 	if !resultCfg.OnComplete.Push {
 		t.Error("expected push=true")
@@ -79,18 +86,24 @@ func TestSettingsOverlay_Navigation(t *testing.T) {
 		t.Errorf("expected index=2 after second MoveDown, got %d", s.selectedIndex)
 	}
 
+	s.MoveDown()
+	if s.selectedIndex != 3 {
+		t.Errorf("expected index=3 after third MoveDown, got %d", s.selectedIndex)
+	}
+
 	// Can't go beyond last item
 	s.MoveDown()
-	if s.selectedIndex != 2 {
-		t.Errorf("expected index=2 (clamped), got %d", s.selectedIndex)
+	if s.selectedIndex != 3 {
+		t.Errorf("expected index=3 (clamped), got %d", s.selectedIndex)
 	}
 
 	s.MoveUp()
-	if s.selectedIndex != 1 {
-		t.Errorf("expected index=1 after MoveUp, got %d", s.selectedIndex)
+	if s.selectedIndex != 2 {
+		t.Errorf("expected index=2 after MoveUp, got %d", s.selectedIndex)
 	}
 
 	// Can't go before first item
+	s.MoveUp()
 	s.MoveUp()
 	s.MoveUp()
 	if s.selectedIndex != 0 {
@@ -105,7 +118,8 @@ func TestSettingsOverlay_ToggleBool(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	// Select "Push to remote" (index 1)
+	// Select "Push to remote" (index 2: setup, bash.timeout, push)
+	s.MoveDown()
 	s.MoveDown()
 
 	key, val := s.ToggleBool()
@@ -142,15 +156,90 @@ func TestSettingsOverlay_RevertToggle(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
+	s.MoveDown() // bash.timeout
 	s.MoveDown() // Select "Push to remote"
 	s.ToggleBool()
-	if !s.items[1].BoolVal {
+	if !s.items[2].BoolVal {
 		t.Fatal("expected true after toggle")
 	}
 
 	s.RevertToggle()
-	if s.items[1].BoolVal {
+	if s.items[2].BoolVal {
 		t.Error("expected false after revert")
+	}
+}
+
+func TestSettingsOverlay_BashTimeoutValidation(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	s.MoveDown() // Select bash.timeout (index 1)
+	if s.GetSelectedItem().Key != "bash.timeout" {
+		t.Fatalf("setup error: expected bash.timeout selected, got %q", s.GetSelectedItem().Key)
+	}
+
+	// Invalid duration: edit should be rejected, edit mode preserved.
+	s.StartEditing()
+	for _, ch := range "5minutes" {
+		s.AddEditChar(ch)
+	}
+	s.ConfirmEdit()
+	if !s.IsEditing() {
+		t.Fatal("expected to remain in edit mode for invalid duration")
+	}
+	if s.editError == "" {
+		t.Error("expected editError to be set for invalid duration")
+	}
+	if s.GetSelectedItem().StringVal != "" {
+		t.Errorf("expected stored value to remain unchanged, got %q", s.GetSelectedItem().StringVal)
+	}
+
+	// Correct the buffer to a valid value: edit accepted, error cleared,
+	// surrounding whitespace trimmed.
+	s.editBuffer = "  30s  "
+	s.ConfirmEdit()
+	if s.IsEditing() {
+		t.Error("expected to exit edit mode after valid duration")
+	}
+	if s.editError != "" {
+		t.Errorf("expected editError cleared, got %q", s.editError)
+	}
+	if s.GetSelectedItem().StringVal != "30s" {
+		t.Errorf("expected stored value '30s', got %q", s.GetSelectedItem().StringVal)
+	}
+}
+
+func TestSettingsOverlay_BashTimeoutEmptyAccepted(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(&config.Config{Bash: config.BashConfig{Timeout: "5m"}})
+	s.MoveDown() // bash.timeout
+
+	s.StartEditing()
+	// Clear the buffer entirely. An empty value is accepted; at runtime
+	// Chief falls back to DefaultBashTimeout (validation does not reject).
+	s.editBuffer = ""
+	s.ConfirmEdit()
+	if s.IsEditing() {
+		t.Error("expected empty value to be accepted")
+	}
+	if s.GetSelectedItem().StringVal != "" {
+		t.Errorf("expected stored value '', got %q", s.GetSelectedItem().StringVal)
+	}
+}
+
+func TestSettingsOverlay_BashTimeoutNegativeRejected(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	s.MoveDown()
+	s.StartEditing()
+	for _, ch := range "-10s" {
+		s.AddEditChar(ch)
+	}
+	s.ConfirmEdit()
+	if !s.IsEditing() {
+		t.Error("expected negative duration to be rejected")
+	}
+	if s.editError == "" {
+		t.Error("expected editError set for negative duration")
 	}
 }
 
@@ -214,6 +303,7 @@ func TestSettingsOverlay_CancelEdit(t *testing.T) {
 func TestSettingsOverlay_StartEditingOnBoolItem(t *testing.T) {
 	s := NewSettingsOverlay()
 	s.LoadFromConfig(config.Default())
+	s.MoveDown() // bash.timeout (string)
 	s.MoveDown() // Select "Push to remote" (bool)
 
 	s.StartEditing()
@@ -359,7 +449,7 @@ func TestSettingsOverlay_GetSelectedItem(t *testing.T) {
 
 	s.MoveDown()
 	item = s.GetSelectedItem()
-	if item.Key != "onComplete.push" {
-		t.Errorf("expected second item key='onComplete.push', got '%s'", item.Key)
+	if item.Key != "bash.timeout" {
+		t.Errorf("expected second item key='bash.timeout', got '%s'", item.Key)
 	}
 }
