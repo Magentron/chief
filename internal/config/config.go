@@ -23,44 +23,33 @@ type Config struct {
 // BashConfig holds settings for external bash commands invoked by Chief
 // (currently the worktree setup command).
 type BashConfig struct {
-	// Timeout is a Go duration string (e.g. "30s", "5m"). Empty values use
-	// DefaultBashTimeout. Unparseable or negative values fall back to the
-	// default and surface a warning via Config.BashTimeoutWarning.
+	// Timeout is a Go duration string (e.g. "30s", "5m"). Empty disables
+	// the timeout (no upper bound on bash command runtime). Unparseable or
+	// negative values are also treated as "no timeout" and surface a
+	// warning via Config.BashTimeoutWarning.
 	Timeout string `yaml:"timeout"`
 }
 
-// DefaultBashTimeout is applied when bash.timeout is unset or unparseable.
-// Setup commands rarely need longer than this; users with slow installers
-// should configure an explicit value.
-const DefaultBashTimeout = 5 * time.Minute
-
 // BashTimeout returns the configured bash command timeout as a time.Duration.
-// Empty values use DefaultBashTimeout; unparseable or negative values also
-// fall back to the default (BashTimeoutWarning describes the fallback).
-// An explicit "0s" returns 0, which callers interpret as "no timeout".
-// Surrounding whitespace in the configured value is ignored.
+// A return value of 0 means "no timeout" — callers (e.g. runSetupCommand) skip
+// wrapping the command in a deadline context. Empty values, unparseable
+// strings, and negative durations all return 0; BashTimeoutWarning describes
+// the fallback for unparseable/negative inputs so a typo does not silently
+// disable a configured limit.
 //
-// Nil-safe: returns DefaultBashTimeout when c is nil so callers do not have to
-// guard a missing config.
+// Nil-safe: returns 0 when c is nil.
 func (c *Config) BashTimeout() time.Duration {
 	if c == nil {
-		return DefaultBashTimeout
+		return 0
 	}
-	v := strings.TrimSpace(c.Bash.Timeout)
-	if v == "" {
-		return DefaultBashTimeout
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil || d < 0 {
-		return DefaultBashTimeout
-	}
-	return d
+	// Default 0 = "no timeout": setup commands are unbounded unless the
+	// user opts in by configuring an explicit duration.
+	return parseDurationOrDefault(c.Bash.Timeout, 0)
 }
 
 // BashTimeoutWarning returns a human-readable warning when the configured
-// bash.timeout value is non-empty but unparseable or negative, in which case
-// BashTimeout silently falls back to DefaultBashTimeout. Returns "" when the
-// value is empty (default), valid, or when c is nil.
+// bash.timeout value is non-empty but unparseable or negative. Returns "" when
+// the value is empty, valid, or when c is nil.
 func (c *Config) BashTimeoutWarning() string {
 	if c == nil {
 		return ""
@@ -71,12 +60,28 @@ func (c *Config) BashTimeoutWarning() string {
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil {
-		return fmt.Sprintf("bash.timeout %q is not a valid duration; using default %s", v, DefaultBashTimeout)
+		return fmt.Sprintf("bash.timeout %q is not a valid duration; ignoring (no timeout)", v)
 	}
 	if d < 0 {
-		return fmt.Sprintf("bash.timeout %q is negative; using default %s", v, DefaultBashTimeout)
+		return fmt.Sprintf("bash.timeout %q is negative; ignoring (no timeout)", v)
 	}
 	return ""
+}
+
+// parseDurationOrDefault parses value as a Go duration. Empty input,
+// unparseable input, and negative durations all return def. Surrounding
+// whitespace is ignored. An explicit "0s" returns 0 — callers interpret 0
+// according to their own semantics (e.g. "no timeout" / "watchdog disabled").
+func parseDurationOrDefault(value string, def time.Duration) time.Duration {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return def
+	}
+	return d
 }
 
 // AgentConfig holds agent CLI settings (Claude, Codex, OpenCode, or Cursor).
@@ -95,51 +100,27 @@ type AgentConfig struct {
 }
 
 // DefaultAgentWatchdogTimeout is applied when agent.watchdogTimeout is unset
-// or unparseable. Matches the historical hardcoded watchdog timeout so users
-// upgrading without setting an explicit value see no behaviour change.
+// or unparseable. Kept in sync with loop.DefaultWatchdogTimeout — that one is
+// what NewLoop initialises a fresh Loop with when no config is passed; this
+// one is the value AgentWatchdogTimeout returns when the manager *does* have
+// a config but the user did not configure the field. If you change one,
+// change the other.
 const DefaultAgentWatchdogTimeout = 5 * time.Minute
 
 // AgentWatchdogTimeout returns the configured agent watchdog timeout.
-// Empty values use DefaultAgentWatchdogTimeout; unparseable or negative
-// values fall back to the default (AgentWatchdogTimeoutWarning describes
-// the fallback). An explicit "0s" returns 0, which loop.SetWatchdogTimeout
-// interprets as "watchdog disabled".
+// Empty, unparseable, and negative values all return DefaultAgentWatchdogTimeout
+// so behaviour matches a fresh Loop initialised without config. An explicit
+// "0s" returns 0, which loop.SetWatchdogTimeout interprets as "watchdog
+// disabled".
 //
 // Nil-safe: returns DefaultAgentWatchdogTimeout when c is nil.
 func (c *Config) AgentWatchdogTimeout() time.Duration {
 	if c == nil {
 		return DefaultAgentWatchdogTimeout
 	}
-	v := strings.TrimSpace(c.Agent.WatchdogTimeout)
-	if v == "" {
-		return DefaultAgentWatchdogTimeout
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil || d < 0 {
-		return DefaultAgentWatchdogTimeout
-	}
-	return d
-}
-
-// AgentWatchdogTimeoutWarning returns a human-readable warning when the
-// configured agent.watchdogTimeout value is non-empty but unparseable or
-// negative. Returns "" when empty, valid, or when c is nil.
-func (c *Config) AgentWatchdogTimeoutWarning() string {
-	if c == nil {
-		return ""
-	}
-	v := strings.TrimSpace(c.Agent.WatchdogTimeout)
-	if v == "" {
-		return ""
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return fmt.Sprintf("agent.watchdogTimeout %q is not a valid duration; using default %s", v, DefaultAgentWatchdogTimeout)
-	}
-	if d < 0 {
-		return fmt.Sprintf("agent.watchdogTimeout %q is negative; using default %s", v, DefaultAgentWatchdogTimeout)
-	}
-	return ""
+	// Default DefaultAgentWatchdogTimeout (5m) preserves the historical
+	// hardcoded watchdog behaviour for users who don't configure the field.
+	return parseDurationOrDefault(c.Agent.WatchdogTimeout, DefaultAgentWatchdogTimeout)
 }
 
 // WorktreeConfig holds worktree-related settings.

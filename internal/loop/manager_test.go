@@ -240,6 +240,19 @@ func TestManagerStartRequiresProvider(t *testing.T) {
 	}
 }
 
+// TestWatchdogDefaultsAreInSync guards the cross-package invariant documented
+// on both DefaultWatchdogTimeout and config.DefaultAgentWatchdogTimeout: a
+// fresh Loop with no config applied must use the same default as a Loop
+// configured via Manager with config.AgentWatchdogTimeout's fallback. If
+// someone bumps one constant without the other, behaviour silently diverges
+// based on whether SetConfig was called.
+func TestWatchdogDefaultsAreInSync(t *testing.T) {
+	if DefaultWatchdogTimeout != config.DefaultAgentWatchdogTimeout {
+		t.Errorf("loop.DefaultWatchdogTimeout (%v) != config.DefaultAgentWatchdogTimeout (%v); update both or behaviour drifts depending on whether Manager.SetConfig is called",
+			DefaultWatchdogTimeout, config.DefaultAgentWatchdogTimeout)
+	}
+}
+
 func TestManagerStartAppliesWatchdogTimeoutFromConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
@@ -263,6 +276,28 @@ func TestManagerStartAppliesWatchdogTimeoutFromConfig(t *testing.T) {
 	}
 	if got := instance.Loop.WatchdogTimeout(); got != 20*time.Minute {
 		t.Errorf("expected watchdog timeout 20m, got %v", got)
+	}
+}
+
+func TestManagerStartDisablesWatchdogWhenConfigured(t *testing.T) {
+	tmpDir := t.TempDir()
+	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
+
+	m := NewManager(10, testProvider)
+	m.SetConfig(&config.Config{
+		Agent: config.AgentConfig{WatchdogTimeout: "0s"},
+	})
+	if err := m.Register("test-prd", prdPath); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+	if err := m.Start("test-prd"); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	defer m.Stop("test-prd")
+
+	instance := m.GetInstance("test-prd")
+	if got := instance.Loop.WatchdogTimeout(); got != 0 {
+		t.Errorf("expected watchdog disabled (0), got %v", got)
 	}
 }
 

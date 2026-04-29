@@ -70,13 +70,13 @@ func TestBashTimeout(t *testing.T) {
 		in   string
 		want time.Duration
 	}{
-		{"empty uses default", "", DefaultBashTimeout},
+		{"empty disables timeout", "", 0},
 		{"valid seconds", "30s", 30 * time.Second},
 		{"valid minutes", "5m", 5 * time.Minute},
 		{"whitespace padded", "  5m  ", 5 * time.Minute},
-		{"invalid falls back to default", "not-a-duration", DefaultBashTimeout},
-		{"negative falls back to default", "-10s", DefaultBashTimeout},
-		{"zero is honoured", "0s", 0},
+		{"invalid disables timeout", "not-a-duration", 0},
+		{"negative disables timeout", "-10s", 0},
+		{"zero disables timeout", "0s", 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -91,8 +91,8 @@ func TestBashTimeout(t *testing.T) {
 
 func TestBashTimeout_NilSafe(t *testing.T) {
 	var cfg *Config
-	if got := cfg.BashTimeout(); got != DefaultBashTimeout {
-		t.Errorf("nil cfg BashTimeout() = %v, want %v", got, DefaultBashTimeout)
+	if got := cfg.BashTimeout(); got != 0 {
+		t.Errorf("nil cfg BashTimeout() = %v, want 0", got)
 	}
 	if got := cfg.BashTimeoutWarning(); got != "" {
 		t.Errorf("nil cfg BashTimeoutWarning() = %q, want empty", got)
@@ -164,32 +164,6 @@ func TestAgentWatchdogTimeout_NilSafe(t *testing.T) {
 	var cfg *Config
 	if got := cfg.AgentWatchdogTimeout(); got != DefaultAgentWatchdogTimeout {
 		t.Errorf("nil cfg AgentWatchdogTimeout() = %v, want %v", got, DefaultAgentWatchdogTimeout)
-	}
-	if got := cfg.AgentWatchdogTimeoutWarning(); got != "" {
-		t.Errorf("nil cfg AgentWatchdogTimeoutWarning() = %q, want empty", got)
-	}
-}
-
-func TestAgentWatchdogTimeoutWarning(t *testing.T) {
-	cases := []struct {
-		name      string
-		in        string
-		wantEmpty bool
-	}{
-		{"empty -> no warning", "", true},
-		{"valid -> no warning", "20m", true},
-		{"zero -> no warning", "0s", true},
-		{"invalid -> warning", "ten-minutes", false},
-		{"negative -> warning", "-5m", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := &Config{Agent: AgentConfig{WatchdogTimeout: tc.in}}
-			got := cfg.AgentWatchdogTimeoutWarning()
-			if (got == "") != tc.wantEmpty {
-				t.Errorf("AgentWatchdogTimeoutWarning(%q) = %q, wantEmpty=%v", tc.in, got, tc.wantEmpty)
-			}
-		})
 	}
 }
 

@@ -62,9 +62,9 @@ func (s *SettingsOverlay) SetSize(width, height int) {
 // LoadFromConfig populates settings items from a config.
 func (s *SettingsOverlay) LoadFromConfig(cfg *config.Config) {
 	s.items = []SettingsItem{
+		{Section: "Agent", Label: "Watchdog timeout", Key: "agent.watchdogTimeout", Type: SettingsItemString, StringVal: cfg.Agent.WatchdogTimeout},
 		{Section: "Worktree", Label: "Setup command", Key: "worktree.setup", Type: SettingsItemString, StringVal: cfg.Worktree.Setup},
 		{Section: "Bash", Label: "Command timeout", Key: "bash.timeout", Type: SettingsItemString, StringVal: cfg.Bash.Timeout},
-		{Section: "Agent", Label: "Watchdog timeout", Key: "agent.watchdogTimeout", Type: SettingsItemString, StringVal: cfg.Agent.WatchdogTimeout},
 		{Section: "On Complete", Label: "Push to remote", Key: "onComplete.push", Type: SettingsItemBool, BoolVal: cfg.OnComplete.Push},
 		{Section: "On Complete", Label: "Create pull request", Key: "onComplete.createPR", Type: SettingsItemBool, BoolVal: cfg.OnComplete.CreatePR},
 	}

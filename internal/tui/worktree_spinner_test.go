@@ -226,7 +226,7 @@ func TestWorktreeSpinnerWarning(t *testing.T) {
 		t.Fatalf("expected no warning initially, got %q", s.Warning())
 	}
 
-	const msg = `bash.timeout "5minutes" is not a valid duration; using default 5m0s`
+	const msg = `bash.timeout "5minutes" is not a valid duration; ignoring (no timeout)`
 	s.SetWarning(msg)
 	if s.Warning() != msg {
 		t.Errorf("expected warning to be set, got %q", s.Warning())

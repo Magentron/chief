@@ -5,11 +5,8 @@ All notable changes to Chief are documented in this file.
 ## [Unreleased]
 
 ### Features
-- New `bash.timeout` setting in `.chief/config.yaml` (and the Settings TUI under **Bash → Command timeout**) caps the runtime of external bash commands invoked by Chief — currently `worktree.setup`. Accepts a Go duration string (`"30s"`, `"5m"`). Setup commands are now killed via process-group SIGKILL on Unix so child processes (`npm install` → `node`, etc.) do not leak.
+- New `bash.timeout` setting in `.chief/config.yaml` (and the Settings TUI under **Bash → Command timeout**) optionally caps the runtime of external bash commands invoked by Chief — currently `worktree.setup`. Accepts a Go duration string (`"30s"`, `"5m"`). **Default is no timeout** — setup commands run unbounded unless you opt in. When configured, setup commands are killed via process-group SIGKILL on Unix so child processes (`npm install` → `node`, etc.) do not leak.
 - New `agent.watchdogTimeout` setting (Settings TUI: **Agent → Watchdog timeout**) makes the agent silence watchdog configurable. Previously hardcoded at 5 minutes — long, quiet acceptance-test runs (e.g. integration suites that produce no stdout for several minutes) would be killed. Set a higher value such as `"30m"` to allow them, or `"0s"` to disable the watchdog entirely. Default unchanged at 5 minutes.
-
-### Behavior changes
-- **Worktree setup commands now time out after 5 minutes by default.** Previously there was no timeout. If a project's `worktree.setup` legitimately runs longer than 5m (heavy `npm install`, container builds, cold `go mod download` on slow links), set an explicit `bash.timeout` (e.g. `"30m"`) or `"0s"` to disable the timeout entirely.
 
 ## [0.7.0] - 2026-03-08
 
