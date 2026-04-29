@@ -7,12 +7,27 @@ import (
 	"github.com/Magentron/chief/internal/config"
 )
 
+// Item layout after LoadFromConfig — kept in sync with settings.go and the
+// YAML grouping in docs/reference/configuration.md:
+//
+//	0: agent.watchdogTimeout       (string)
+//	1: worktree.setup              (string)
+//	2: worktree.alwaysPrompt       (bool)
+//	3: worktree.promptBranchPattern (string, regex-validated)
+//	4: bash.timeout                (string, duration-validated)
+//	5: onComplete.push             (bool)
+//	6: onComplete.createPR         (bool)
+
 func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	s := NewSettingsOverlay()
 	cfg := &config.Config{
+		Agent: config.AgentConfig{WatchdogTimeout: "20m"},
 		Worktree: config.WorktreeConfig{
-			Setup: "npm install",
+			Setup:               "npm install",
+			AlwaysPrompt:        false,
+			PromptBranchPattern: "^(main|master)$",
 		},
+		Bash: config.BashConfig{Timeout: "30s"},
 		OnComplete: config.OnCompleteConfig{
 			Push:     true,
 			CreatePR: false,
@@ -20,25 +35,29 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	if len(s.items) != 5 {
-		t.Fatalf("expected 5 items, got %d", len(s.items))
+	if len(s.items) != 7 {
+		t.Fatalf("expected 7 items, got %d", len(s.items))
 	}
-	// Order matches the YAML in docs/reference/configuration.md so the TUI
-	// reads top-to-bottom in the same order users see in their config file.
-	if s.items[0].Key != "agent.watchdogTimeout" {
-		t.Errorf("agent.watchdogTimeout item: got key=%s", s.items[0].Key)
+	if s.items[0].Key != "agent.watchdogTimeout" || s.items[0].StringVal != "20m" {
+		t.Errorf("agent.watchdogTimeout item: got key=%s val=%s", s.items[0].Key, s.items[0].StringVal)
 	}
 	if s.items[1].Key != "worktree.setup" || s.items[1].StringVal != "npm install" {
 		t.Errorf("worktree.setup item: got key=%s val=%s", s.items[1].Key, s.items[1].StringVal)
 	}
-	if s.items[2].Key != "bash.timeout" {
-		t.Errorf("bash.timeout item: got key=%s", s.items[2].Key)
+	if s.items[2].Key != "worktree.alwaysPrompt" || s.items[2].BoolVal {
+		t.Errorf("worktree.alwaysPrompt item: got key=%s val=%v", s.items[2].Key, s.items[2].BoolVal)
 	}
-	if s.items[3].Key != "onComplete.push" || !s.items[3].BoolVal {
-		t.Errorf("onComplete.push item: got key=%s val=%v", s.items[3].Key, s.items[3].BoolVal)
+	if s.items[3].Key != "worktree.promptBranchPattern" || s.items[3].StringVal != "^(main|master)$" {
+		t.Errorf("worktree.promptBranchPattern item: got key=%s val=%s", s.items[3].Key, s.items[3].StringVal)
 	}
-	if s.items[4].Key != "onComplete.createPR" || s.items[4].BoolVal {
-		t.Errorf("onComplete.createPR item: got key=%s val=%v", s.items[4].Key, s.items[4].BoolVal)
+	if s.items[4].Key != "bash.timeout" || s.items[4].StringVal != "30s" {
+		t.Errorf("bash.timeout item: got key=%s val=%s", s.items[4].Key, s.items[4].StringVal)
+	}
+	if s.items[5].Key != "onComplete.push" || !s.items[5].BoolVal {
+		t.Errorf("onComplete.push item: got key=%s val=%v", s.items[5].Key, s.items[5].BoolVal)
+	}
+	if s.items[6].Key != "onComplete.createPR" || s.items[6].BoolVal {
+		t.Errorf("onComplete.createPR item: got key=%s val=%v", s.items[6].Key, s.items[6].BoolVal)
 	}
 	if s.selectedIndex != 0 {
 		t.Errorf("expected selectedIndex=0, got %d", s.selectedIndex)
@@ -50,12 +69,13 @@ func TestSettingsOverlay_ApplyToConfig(t *testing.T) {
 	cfg := config.Default()
 	s.LoadFromConfig(cfg)
 
-	// Modify items (order: agent, worktree, bash, push, createPR)
-	s.items[0].StringVal = "20m"
-	s.items[1].StringVal = "go mod download"
-	s.items[2].StringVal = "30s"
-	s.items[3].BoolVal = true
-	s.items[4].BoolVal = true
+	s.items[0].StringVal = "20m"             // agent.watchdogTimeout
+	s.items[1].StringVal = "go mod download" // worktree.setup
+	s.items[2].BoolVal = true                // worktree.alwaysPrompt
+	s.items[3].StringVal = "^release/.*$"    // worktree.promptBranchPattern
+	s.items[4].StringVal = "30s"             // bash.timeout
+	s.items[5].BoolVal = true                // onComplete.push
+	s.items[6].BoolVal = true                // onComplete.createPR
 
 	resultCfg := config.Default()
 	s.ApplyToConfig(resultCfg)
@@ -65,6 +85,12 @@ func TestSettingsOverlay_ApplyToConfig(t *testing.T) {
 	}
 	if resultCfg.Worktree.Setup != "go mod download" {
 		t.Errorf("expected setup='go mod download', got '%s'", resultCfg.Worktree.Setup)
+	}
+	if !resultCfg.Worktree.AlwaysPrompt {
+		t.Error("expected alwaysPrompt=true")
+	}
+	if resultCfg.Worktree.PromptBranchPattern != "^release/.*$" {
+		t.Errorf("expected promptBranchPattern='^release/.*$', got '%s'", resultCfg.Worktree.PromptBranchPattern)
 	}
 	if resultCfg.Bash.Timeout != "30s" {
 		t.Errorf("expected bash.timeout='30s', got '%s'", resultCfg.Bash.Timeout)
@@ -85,44 +111,37 @@ func TestSettingsOverlay_Navigation(t *testing.T) {
 		t.Fatalf("expected initial index=0, got %d", s.selectedIndex)
 	}
 
-	s.MoveDown()
-	if s.selectedIndex != 1 {
-		t.Errorf("expected index=1 after MoveDown, got %d", s.selectedIndex)
-	}
-
-	s.MoveDown()
-	if s.selectedIndex != 2 {
-		t.Errorf("expected index=2 after second MoveDown, got %d", s.selectedIndex)
-	}
-
-	s.MoveDown()
-	if s.selectedIndex != 3 {
-		t.Errorf("expected index=3 after third MoveDown, got %d", s.selectedIndex)
-	}
-
-	s.MoveDown()
-	if s.selectedIndex != 4 {
-		t.Errorf("expected index=4 after fourth MoveDown, got %d", s.selectedIndex)
+	for i := 1; i <= 6; i++ {
+		s.MoveDown()
+		if s.selectedIndex != i {
+			t.Errorf("expected index=%d after MoveDown, got %d", i, s.selectedIndex)
+		}
 	}
 
 	// Can't go beyond last item
 	s.MoveDown()
-	if s.selectedIndex != 4 {
-		t.Errorf("expected index=4 (clamped), got %d", s.selectedIndex)
+	if s.selectedIndex != 6 {
+		t.Errorf("expected index=6 (clamped), got %d", s.selectedIndex)
 	}
 
 	s.MoveUp()
-	if s.selectedIndex != 3 {
-		t.Errorf("expected index=3 after MoveUp, got %d", s.selectedIndex)
+	if s.selectedIndex != 5 {
+		t.Errorf("expected index=5 after MoveUp, got %d", s.selectedIndex)
 	}
 
-	// Can't go before first item
-	s.MoveUp()
-	s.MoveUp()
-	s.MoveUp()
-	s.MoveUp()
+	for i := 0; i < 10; i++ {
+		s.MoveUp()
+	}
 	if s.selectedIndex != 0 {
 		t.Errorf("expected index=0 (clamped), got %d", s.selectedIndex)
+	}
+}
+
+// moveTo positions the cursor on the item at the given index.
+func moveTo(s *SettingsOverlay, idx int) {
+	s.selectedIndex = 0
+	for i := 0; i < idx; i++ {
+		s.MoveDown()
 	}
 }
 
@@ -132,11 +151,7 @@ func TestSettingsOverlay_ToggleBool(t *testing.T) {
 		OnComplete: config.OnCompleteConfig{Push: false},
 	}
 	s.LoadFromConfig(cfg)
-
-	// Select "Push to remote" (index 3: agent.watchdogTimeout, worktree.setup, bash.timeout, push)
-	s.MoveDown()
-	s.MoveDown()
-	s.MoveDown()
+	moveTo(s, 5) // onComplete.push
 
 	key, val := s.ToggleBool()
 	if key != "onComplete.push" {
@@ -146,19 +161,17 @@ func TestSettingsOverlay_ToggleBool(t *testing.T) {
 		t.Error("expected val=true after toggle")
 	}
 
-	// Toggle back
-	key, val = s.ToggleBool()
+	_, val = s.ToggleBool()
 	if val {
 		t.Error("expected val=false after second toggle")
 	}
-	_ = key
 }
 
 func TestSettingsOverlay_ToggleBool_OnStringItem(t *testing.T) {
 	s := NewSettingsOverlay()
 	s.LoadFromConfig(config.Default())
 
-	// Selected item is "Watchdog timeout" (string type, index 0)
+	// Selected item is "Watchdog timeout" (string type, index 0).
 	key, _ := s.ToggleBool()
 	if key != "" {
 		t.Errorf("expected empty key for string item toggle, got '%s'", key)
@@ -171,17 +184,14 @@ func TestSettingsOverlay_RevertToggle(t *testing.T) {
 		OnComplete: config.OnCompleteConfig{Push: false},
 	}
 	s.LoadFromConfig(cfg)
-
-	s.MoveDown() // worktree.setup
-	s.MoveDown() // bash.timeout
-	s.MoveDown() // Select "Push to remote"
+	moveTo(s, 5) // onComplete.push
 	s.ToggleBool()
-	if !s.items[3].BoolVal {
+	if !s.items[5].BoolVal {
 		t.Fatal("expected true after toggle")
 	}
 
 	s.RevertToggle()
-	if s.items[3].BoolVal {
+	if s.items[5].BoolVal {
 		t.Error("expected false after revert")
 	}
 }
@@ -189,8 +199,7 @@ func TestSettingsOverlay_RevertToggle(t *testing.T) {
 func TestSettingsOverlay_BashTimeoutValidation(t *testing.T) {
 	s := NewSettingsOverlay()
 	s.LoadFromConfig(config.Default())
-	s.MoveDown() // worktree.setup
-	s.MoveDown() // Select bash.timeout (index 2)
+	moveTo(s, 4) // bash.timeout
 	if s.GetSelectedItem().Key != "bash.timeout" {
 		t.Fatalf("setup error: expected bash.timeout selected, got %q", s.GetSelectedItem().Key)
 	}
@@ -200,7 +209,9 @@ func TestSettingsOverlay_BashTimeoutValidation(t *testing.T) {
 	for _, ch := range "5minutes" {
 		s.AddEditChar(ch)
 	}
-	s.ConfirmEdit()
+	if err := s.ConfirmEdit(); err == nil {
+		t.Fatal("expected error for invalid duration")
+	}
 	if !s.IsEditing() {
 		t.Fatal("expected to remain in edit mode for invalid duration")
 	}
@@ -214,7 +225,9 @@ func TestSettingsOverlay_BashTimeoutValidation(t *testing.T) {
 	// Correct the buffer to a valid value: edit accepted, error cleared,
 	// surrounding whitespace trimmed.
 	s.editBuffer = "  30s  "
-	s.ConfirmEdit()
+	if err := s.ConfirmEdit(); err != nil {
+		t.Fatalf("ConfirmEdit unexpected error: %v", err)
+	}
 	if s.IsEditing() {
 		t.Error("expected to exit edit mode after valid duration")
 	}
@@ -229,17 +242,16 @@ func TestSettingsOverlay_BashTimeoutValidation(t *testing.T) {
 func TestSettingsOverlay_BashTimeoutEmptyAccepted(t *testing.T) {
 	s := NewSettingsOverlay()
 	s.LoadFromConfig(&config.Config{Bash: config.BashConfig{Timeout: "5m"}})
-	s.MoveDown() // worktree.setup
-	s.MoveDown() // bash.timeout
+	moveTo(s, 4) // bash.timeout
 	if s.GetSelectedItem().Key != "bash.timeout" {
 		t.Fatalf("setup error: expected bash.timeout selected, got %q", s.GetSelectedItem().Key)
 	}
 
 	s.StartEditing()
-	// Clear the buffer entirely. An empty value is accepted; at runtime
-	// BashTimeout returns 0 (no timeout) for empty.
 	s.editBuffer = ""
-	s.ConfirmEdit()
+	if err := s.ConfirmEdit(); err != nil {
+		t.Fatalf("expected empty value to be accepted, got error: %v", err)
+	}
 	if s.IsEditing() {
 		t.Error("expected empty value to be accepted")
 	}
@@ -251,13 +263,14 @@ func TestSettingsOverlay_BashTimeoutEmptyAccepted(t *testing.T) {
 func TestSettingsOverlay_BashTimeoutNegativeRejected(t *testing.T) {
 	s := NewSettingsOverlay()
 	s.LoadFromConfig(config.Default())
-	s.MoveDown() // worktree.setup
-	s.MoveDown() // bash.timeout
+	moveTo(s, 4) // bash.timeout
 	s.StartEditing()
 	for _, ch := range "-10s" {
 		s.AddEditChar(ch)
 	}
-	s.ConfirmEdit()
+	if err := s.ConfirmEdit(); err == nil {
+		t.Fatal("expected negative duration to be rejected")
+	}
 	if !s.IsEditing() {
 		t.Error("expected negative duration to be rejected")
 	}
@@ -269,17 +282,17 @@ func TestSettingsOverlay_BashTimeoutNegativeRejected(t *testing.T) {
 func TestSettingsOverlay_AgentWatchdogTimeoutValidation(t *testing.T) {
 	s := NewSettingsOverlay()
 	s.LoadFromConfig(config.Default())
-	// agent.watchdogTimeout is the first item — no navigation needed.
 	if s.GetSelectedItem().Key != "agent.watchdogTimeout" {
 		t.Fatalf("setup error: expected agent.watchdogTimeout selected, got %q", s.GetSelectedItem().Key)
 	}
 
-	// Invalid duration: rejected, edit mode preserved.
 	s.StartEditing()
 	for _, ch := range "10minutes" {
 		s.AddEditChar(ch)
 	}
-	s.ConfirmEdit()
+	if err := s.ConfirmEdit(); err == nil {
+		t.Fatal("expected error for invalid duration")
+	}
 	if !s.IsEditing() {
 		t.Fatal("expected to remain in edit mode for invalid duration")
 	}
@@ -290,9 +303,10 @@ func TestSettingsOverlay_AgentWatchdogTimeoutValidation(t *testing.T) {
 		t.Errorf("expected stored value to remain unchanged, got %q", s.GetSelectedItem().StringVal)
 	}
 
-	// Valid value with surrounding whitespace is trimmed and accepted.
 	s.editBuffer = "  20m  "
-	s.ConfirmEdit()
+	if err := s.ConfirmEdit(); err != nil {
+		t.Fatalf("ConfirmEdit unexpected error: %v", err)
+	}
 	if s.IsEditing() {
 		t.Error("expected valid duration to be accepted")
 	}
@@ -311,7 +325,9 @@ func TestSettingsOverlay_AgentWatchdogTimeoutNegativeRejected(t *testing.T) {
 	for _, ch := range "-5m" {
 		s.AddEditChar(ch)
 	}
-	s.ConfirmEdit()
+	if err := s.ConfirmEdit(); err == nil {
+		t.Fatal("expected negative duration to be rejected")
+	}
 	if !s.IsEditing() {
 		t.Error("expected negative duration to be rejected")
 	}
@@ -323,8 +339,7 @@ func TestSettingsOverlay_AgentWatchdogTimeoutNegativeRejected(t *testing.T) {
 func TestSettingsOverlay_StringEditing(t *testing.T) {
 	s := NewSettingsOverlay()
 	s.LoadFromConfig(config.Default())
-	s.MoveDown() // Select "Setup command" (worktree.setup, index 1) — duration
-	// validation does not apply here, so an arbitrary value is accepted.
+	moveTo(s, 1) // worktree.setup — accepts arbitrary strings
 	if s.IsEditing() {
 		t.Fatal("should not be editing initially")
 	}
@@ -349,7 +364,9 @@ func TestSettingsOverlay_StringEditing(t *testing.T) {
 		t.Errorf("expected 'np' after delete, got '%s'", s.editBuffer)
 	}
 
-	s.ConfirmEdit()
+	if err := s.ConfirmEdit(); err != nil {
+		t.Fatalf("ConfirmEdit unexpected error: %v", err)
+	}
 	if s.IsEditing() {
 		t.Fatal("should not be editing after ConfirmEdit")
 	}
@@ -364,7 +381,7 @@ func TestSettingsOverlay_CancelEdit(t *testing.T) {
 		Worktree: config.WorktreeConfig{Setup: "original"},
 	}
 	s.LoadFromConfig(cfg)
-	s.MoveDown() // worktree.setup (index 1)
+	moveTo(s, 1) // worktree.setup
 
 	s.StartEditing()
 	s.AddEditChar('x')
@@ -381,13 +398,80 @@ func TestSettingsOverlay_CancelEdit(t *testing.T) {
 func TestSettingsOverlay_StartEditingOnBoolItem(t *testing.T) {
 	s := NewSettingsOverlay()
 	s.LoadFromConfig(config.Default())
-	s.MoveDown() // worktree.setup (string)
-	s.MoveDown() // bash.timeout (string)
-	s.MoveDown() // Select "Push to remote" (bool)
+	moveTo(s, 2) // worktree.alwaysPrompt (bool)
 
 	s.StartEditing()
 	if s.IsEditing() {
 		t.Error("should not start editing on a bool item")
+	}
+}
+
+func TestSettingsOverlay_ConfirmEdit_InvalidRegex(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	moveTo(s, 3) // worktree.promptBranchPattern
+
+	original := s.items[3].StringVal
+	s.StartEditing()
+	for s.editBuffer != "" {
+		s.DeleteEditChar()
+	}
+	for _, ch := range "[bad" {
+		s.AddEditChar(ch)
+	}
+
+	err := s.ConfirmEdit()
+	if err == nil {
+		t.Fatal("expected error from ConfirmEdit on invalid regex, got nil")
+	}
+	if !s.IsEditing() {
+		t.Error("expected to remain in edit mode after rejection")
+	}
+	if s.items[3].StringVal != original {
+		t.Errorf("expected item value unchanged on rejection, got %q (was %q)", s.items[3].StringVal, original)
+	}
+	if !strings.Contains(s.editError, "invalid regex") {
+		t.Errorf("expected editError to mention invalid regex, got %q", s.editError)
+	}
+}
+
+func TestSettingsOverlay_ConfirmEdit_ValidRegex(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	moveTo(s, 3) // worktree.promptBranchPattern
+	s.StartEditing()
+	for s.editBuffer != "" {
+		s.DeleteEditChar()
+	}
+	for _, ch := range "^release/.*$" {
+		s.AddEditChar(ch)
+	}
+
+	if err := s.ConfirmEdit(); err != nil {
+		t.Fatalf("ConfirmEdit unexpected error: %v", err)
+	}
+	if s.IsEditing() {
+		t.Error("expected editor to close after valid input")
+	}
+	if s.items[3].StringVal != "^release/.*$" {
+		t.Errorf("expected pattern saved, got %q", s.items[3].StringVal)
+	}
+}
+
+func TestSettingsOverlay_ConfirmEdit_EmptyPatternIsValid(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	moveTo(s, 3) // worktree.promptBranchPattern
+	s.StartEditing()
+	for s.editBuffer != "" {
+		s.DeleteEditChar()
+	}
+
+	if err := s.ConfirmEdit(); err != nil {
+		t.Fatalf("ConfirmEdit on empty pattern returned error: %v", err)
+	}
+	if s.items[3].StringVal != "" {
+		t.Errorf("expected empty pattern saved, got %q", s.items[3].StringVal)
 	}
 }
 
@@ -424,7 +508,6 @@ func TestSettingsOverlay_Render(t *testing.T) {
 
 	rendered := s.Render()
 
-	// Check header
 	if !strings.Contains(rendered, "Settings") {
 		t.Error("expected 'Settings' in header")
 	}
@@ -432,21 +515,12 @@ func TestSettingsOverlay_Render(t *testing.T) {
 		t.Error("expected config path in header")
 	}
 
-	// Check section headers
-	if !strings.Contains(rendered, "Agent") {
-		t.Error("expected 'Agent' section")
-	}
-	if !strings.Contains(rendered, "Worktree") {
-		t.Error("expected 'Worktree' section")
-	}
-	if !strings.Contains(rendered, "Bash") {
-		t.Error("expected 'Bash' section")
-	}
-	if !strings.Contains(rendered, "On Complete") {
-		t.Error("expected 'On Complete' section")
+	for _, section := range []string{"Agent", "Worktree", "Bash", "On Complete"} {
+		if !strings.Contains(rendered, section) {
+			t.Errorf("expected %q section", section)
+		}
 	}
 
-	// Check values
 	if !strings.Contains(rendered, "npm install") {
 		t.Error("expected 'npm install' value")
 	}
@@ -457,9 +531,29 @@ func TestSettingsOverlay_Render(t *testing.T) {
 		t.Error("expected 'No' for createPR")
 	}
 
-	// Check footer
 	if !strings.Contains(rendered, "Esc: close") {
 		t.Error("expected 'Esc: close' in footer")
+	}
+}
+
+func TestSettingsOverlay_RenderEditError(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	s.SetSize(80, 24)
+
+	moveTo(s, 3) // worktree.promptBranchPattern
+	s.StartEditing()
+	for s.editBuffer != "" {
+		s.DeleteEditChar()
+	}
+	for _, ch := range "[bad" {
+		s.AddEditChar(ch)
+	}
+	_ = s.ConfirmEdit()
+
+	rendered := s.Render()
+	if !strings.Contains(rendered, "invalid regex") {
+		t.Error("expected rendered output to contain 'invalid regex' message")
 	}
 }
 
@@ -502,7 +596,6 @@ func TestSettingsOverlay_RenderSelectedIndicator(t *testing.T) {
 
 	rendered := s.Render()
 
-	// The selected item should have a ">" indicator
 	if !strings.Contains(rendered, ">") {
 		t.Error("expected '>' cursor indicator for selected item")
 	}
